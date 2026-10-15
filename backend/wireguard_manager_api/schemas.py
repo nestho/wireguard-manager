@@ -109,3 +109,28 @@ class ClientConfigRequest(BaseModel):
         if not networks:
             raise ValueError("At least one allowed IP network is required")
         return ", ".join(networks)
+
+class LinuxServerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=120, pattern=r"^[a-zA-Z0-9_.-]+$")
+    ssh_private_key: str = Field(min_length=100, max_length=20000)
+    host_key_fingerprint: str = Field(min_length=20, max_length=128, pattern=r"^SHA256:[A-Za-z0-9+/]{20,}=?$")
+
+class LinuxInstallRequest(BaseModel):
+    confirm: bool = False
+
+class LinuxPeerCreate(BaseModel):
+    interface_name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    allowed_address: str = Field(min_length=3, max_length=64)
+    confirm: bool = False
+    dry_run: bool = True
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    providers: list[str]
+    router_connectivity: str
+    linux_connectivity: str

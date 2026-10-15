@@ -65,3 +65,20 @@ class RefreshSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+class LinuxServer(Base):
+    __tablename__ = "linux_servers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    host: Mapped[str] = mapped_column(String(253))
+    port: Mapped[int] = mapped_column(Integer, default=22)
+    username: Mapped[str] = mapped_column(String(120))
+    private_key_ciphertext: Mapped[str] = mapped_column(Text)
+    host_key_fingerprint: Mapped[str] = mapped_column(String(128))
+    distro_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    distro_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    package_manager: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    wireguard_installed: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_status: Mapped[str] = mapped_column(String(24), default="unverified")
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

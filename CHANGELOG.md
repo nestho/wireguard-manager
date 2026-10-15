@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The project follows Sem
 
 ## [Unreleased]
 
+### Linux server support
+- Added a Linux server inventory model and Alembic migrations for Linux servers and their WireGuard peers.
+- Added SSH onboarding with encrypted private-key storage and SHA256 host-key pinning, plus OS/kernel/package-manager and WireGuard tool detection.
+- Added explicit install preview and confirmation for apt, dnf/yum, zypper and apk package managers.
+- Added Linux interface/peer discovery and point-in-time counters, guarded peer create/revoke with `wg-quick save` and rollback attempts, and audited client config/QR delivery.
+- Added a Linux Servers frontend demo section describing onboarding and supported distribution families. It is illustrative only; live UI/API integration is still pending.
+- Added unit tests for Linux host validation and distribution-specific package plans.
+
+
 ### Added
 - Initial FastAPI backend package and versioned API namespace.
 - JWT access authentication, Argon2 password hashing, and admin/operator/viewer role checks.

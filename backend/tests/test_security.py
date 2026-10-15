@@ -36,3 +36,19 @@ def test_client_config_inputs_validate_server_key_and_endpoint():
         ClientConfigRequest(server_public_key="not-a-wireguard-key", endpoint="vpn.example.com:51820")
     with pytest.raises(ValidationError):
         ClientConfigRequest(server_public_key=key, endpoint="vpn.example.com:99999")
+
+def test_linux_host_validation_accepts_private_ip_and_rejects_hostname():
+    from wireguard_manager_api.linux_servers import validate_linux_host
+    assert validate_linux_host("10.20.30.40") == "10.20.30.40"
+    with pytest.raises(ValueError):
+        validate_linux_host("vpn.example.com")
+    with pytest.raises(ValueError):
+        validate_linux_host("127.0.0.1")
+
+def test_linux_install_plan_is_distribution_specific():
+    from wireguard_manager_api.linux_servers import _install_plan
+    assert "apt-get update" in _install_plan("ubuntu", "apt-get")[0]["command"]
+    assert "dnf install" in _install_plan("rocky", "dnf")[0]["command"]
+    assert "zypper" in _install_plan("opensuse-leap", "zypper")[0]["command"]
+    assert "apk add" in _install_plan("alpine", "apk")[0]["command"]
+    assert _install_plan("unknown", "unknown") == []

@@ -181,7 +181,7 @@ The repository now includes a separate FastAPI service under `backend/`. The fro
 | GET | `/healthz` | Liveness |
 | GET | `/api/v1/health` | API readiness |
 | POST | `/api/v1/admin/bootstrap` | One-time bootstrap, only when configured and no users exist |
-| POST | `/api/v1/auth/login` | Obtain a short-lived JWT access token |
+| POST | `/api/v1/auth/login` | Obtain access and refresh tokens |\n| POST | `/api/v1/auth/refresh` | Rotate refresh token and issue a new access token |\n| POST | `/api/v1/auth/logout` | Revoke the presented refresh token |
 | GET | `/api/v1/auth/me` | Current authenticated user |
 | POST | `/api/v1/auth/users` | Admin creates a user and assigns a role |
 | GET / POST | `/api/v1/routers` | Authenticated inventory / operator-or-admin registration |
@@ -221,6 +221,6 @@ Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedi
 
 ### Current backend limitations
 
-This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Refresh-session revocation, rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
+This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
 
 See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.

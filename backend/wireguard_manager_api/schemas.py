@@ -127,3 +127,10 @@ class LinuxPeerCreate(BaseModel):
     allowed_address: str = Field(min_length=3, max_length=64)
     confirm: bool = False
     dry_run: bool = True
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    providers: list[str]
+    router_connectivity: str
+    linux_connectivity: str

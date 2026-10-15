@@ -160,10 +160,13 @@ async def apply_optimizer(server_id: int, body: OptimizerApplyRequest, db: Sessi
         lines += [f"{TUNING[rid]['key']} = {TUNING[rid]['value']}" for rid in body.recommendation_ids]
         content = "\\n".join(lines) + "\\n"
         # Fixed path and allowlisted fixed values; no request-controlled shell text is interpolated.
+        apply_commands = "; ".join(
+            f"sysctl -w {TUNING[rid]['key']}={TUNING[rid]['value']}"
+            for rid in body.recommendation_ids
+        )
         command = "sudo -n sh -c " + __import__("shlex").quote(
             "set -eu; printf %s " + __import__("shlex").quote(content) +
-            " > " + DROPIN + "; chmod 0644 " + DROPIN +
-            "; sysctl --system >/dev/null"
+            " > " + DROPIN + "; chmod 0644 " + DROPIN + "; " + apply_commands
         )
         await _run(conn, command, timeout=30)
     except HTTPException:

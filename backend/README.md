@@ -1,37 +1,42 @@
 # WireGuard Manager API
 
-This service is the first backend milestone for WireGuard Manager. It deliberately starts with a small, testable API foundation; it does **not** connect to routers or perform peer changes yet.
-
-## Current scope
-
-- FastAPI application and versioned `/api/v1` route namespace
-- Liveness endpoint at `GET /healthz`
-- Readiness endpoint at `GET /api/v1/health`
-- Explicit API metadata and consistent error handling
-- Unit tests for health endpoints
-- No router credentials, private keys, or peer configuration are accepted or stored in this milestone
+FastAPI backend for authenticated WireGuard inventory and controlled RouterOS management. The frontend is still a separate demo and is not connected to this API.
 
 ## Run locally
 
-From the repository root:
+Requires Python 3.11+.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+cp backend/.env.example .env
+# Set WGM_JWT_SECRET and WGM_ENCRYPTION_KEY to freshly generated secrets.
+alembic upgrade head
 uvicorn wireguard_manager_api.main:app --reload --app-dir backend
 ```
 
-Open `http://127.0.0.1:8000/docs` for the local OpenAPI page.
-
-Run tests:
+Generate secrets with:
 
 ```bash
-python -m pytest backend/tests
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
-## Security status
+Never commit the generated values. For production, inject secrets through a secret manager and use a database supported by SQLAlchemy. Apply reviewed migrations before deploying the new application version; startup intentionally does not create or alter tables.
 
-This is an initial development scaffold, **not production-ready**. Do not expose it to a network or use it to manage real routers until authentication, authorization, secret storage, request limits, security logging, and RouterOS connection safeguards are implemented and reviewed.
+Run tests with `python -m pytest backend/tests`. API documentation is available at `http://127.0.0.1:8000/docs`.
 
-The next milestone should add authenticated router inventory with encrypted credential storage and read-only connection testing. Mutating peer operations must remain disabled until address allocation, dry-run preview, explicit confirmation, and rollback behavior are implemented.
+## Implemented
+
+- Versioned API, health checks, JWT access tokens, Argon2 password hashing, and admin/operator/viewer RBAC.
+- Admin-only initial bootstrap and user provisioning.
+- SQLAlchemy persistence models and an initial Alembic migration.
+- Fernet-encrypted router credentials and an encrypted private-key field.
+- Router registration, TLS-verified RouterOS REST connectivity test, read-only peer discovery, point-in-time traffic counters, and bounded read-only diagnostics.
+- IP-literal host validation to reduce DNS rebinding/SSRF risk; public router addresses disabled by default.
+- Peer address validation and dry-run preview; hash-linked audit records with chain verification.
+
+## Important limitations
+
+This is **not production-ready**. Live peer creation/revocation remains deliberately disabled until router-side rollback and IP allocation reconciliation are verified. Client configuration/QR delivery, refresh-session revocation, rate limiting, background metrics history, external secret management, off-host tamper-resistant audit retention, frontend integration, and real-device integration testing remain outstanding. Do not expose this service to the public internet without a deployment-specific security review, TLS termination, firewalling, and operational backups.

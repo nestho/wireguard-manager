@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "demo_only": true,
+  "notice": "Entirely synthetic examples. Do not use as a real router inventory.",
+  "routers": [
+    {
+      "id": "router-lab-01",
+      "name": "Edge Router",
+      "environment": "LAB",
+      "address": "192.0.2.1",
+      "routeros_version": "7.16",
+      "ssh_reachable": true,
+      "wireguard_interface": "wg-main",
+      "interface_active": true,
+      "status": "healthy"
+    },
+    {
+      "id": "router-office-01",
+      "name": "Remote Office",
+      "address": "198.51.100.10",
+      "routeros_version": "7.15",
+      "ssh_reachable": true,
+      "wireguard_interface": "wg-office",
+      "interface_active": true,
+      "status": "healthy"
+    }
+  ],
+  "devices": [
+    { "id": "dev-001", "owner": "Alex Morgan", "name": "MacBook Pro", "router_id": "router-lab-01", "address": "10.10.20.2/32", "status": "online", "transfer_bytes": 2576980377 },
+    { "id": "dev-002", "owner": "Sam Rivera", "name": "iPhone 15", "router_id": "router-lab-01", "address": "10.10.20.3/32", "status": "online", "transfer_bytes": 887095500 },
+    { "id": "dev-003", "owner": "Jordan Lee", "name": "ThinkPad X1", "router_id": "router-office-01", "address": "10.20.30.8/32", "status": "offline", "transfer_bytes": 5476083302 },
+    { "id": "dev-004", "owner": "Taylor Kim", "name": "Pixel 9", "router_id": "router-office-01", "address": "10.20.30.9/32", "status": "online", "transfer_bytes": 1288490188 },
+    { "id": "dev-005", "owner": "Morgan Chen", "name": "Ubuntu Workstation", "router_id": "router-lab-01", "address": "10.10.20.6/32", "status": "offline", "transfer_bytes": 13743895347 }
+  ],
+  "audit_events": [
+    { "id": "evt-001", "event": "Demo workspace initialized", "actor": "system", "timestamp": "2026-10-15T08:00:00Z", "result": "success" },
+    { "id": "evt-002", "event": "Sample router health check", "actor": "demo-runner", "timestamp": "2026-10-15T08:05:00Z", "result": "success" }
+  ]
+}

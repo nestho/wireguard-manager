@@ -120,3 +120,10 @@ class LinuxServerCreate(BaseModel):
 
 class LinuxInstallRequest(BaseModel):
     confirm: bool = False
+
+class LinuxPeerCreate(BaseModel):
+    interface_name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    allowed_address: str = Field(min_length=3, max_length=64)
+    confirm: bool = False
+    dry_run: bool = True

@@ -1,33 +1,84 @@
 # WireGuard Manager
 
-A local-first dashboard concept for organizing WireGuard peers across MikroTik routers. The repository currently contains a **frontend demo** with synthetic data; it does not yet connect to RouterOS, generate real peer keys, or apply router changes.
+A dark, responsive **frontend demo for organizing WireGuard routers, peers, device inventory, traffic, diagnostics, and administrative audit events**. Built with React, TypeScript, and Vite.
 
-![WireGuard Manager dashboard preview](docs/dashboard-preview.svg)
+> [!WARNING]
+> **Demo only — not connected to real routers.** All router health, peer status, resource values, traffic, diagnostics, and audit events are illustrative. This project does not connect to MikroTik RouterOS, execute SSH/API commands, create or revoke real peers, or generate WireGuard keys/configurations. Do not use the displayed values as live monitoring data.
 
 <p align="center">
-  <strong>Dark dashboard · Router health · Peer inventory · Traffic overview</strong>
+  <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the live demo →</strong></a>
+  &nbsp; · &nbsp;
+  <a href="https://github.com/nestho/wireguard-manager/actions/workflows/ci.yml"><strong>Build & deployment workflow</strong></a>
 </p>
 
-> **Safety notice:** The current UI is a visual prototype. Router health and traffic are illustrative, and device creation is intentionally non-operational. Do not treat the dashboard as a live monitoring system.
+## Screenshots
 
-## Current status
+The screenshots below are **illustrative SVG mockups** of the current interface and its separate views. They contain synthetic data, not live application telemetry.
 
-- [x] Responsive dashboard UI with dark theme
-- [x] Synthetic router and device examples
-- [x] Searchable sample device table
-- [x] Dashboard metrics, router-health cards, and illustrative traffic chart
-- [x] Demo-mode warning and non-operational “Add device” dialog
-- [x] MIT license
-- [ ] RouterOS SSH/API integration
-- [ ] Setup wizard and connection diagnostics
-- [ ] Peer create/revoke workflow with dry-run and explicit confirmation
-- [ ] Inventory persistence, backups, and rollback
-- [ ] Audit log backed by real operations
-- [ ] Automated tests and release packaging
+### Overview dashboard
+
+![WireGuard Manager overview dashboard](docs/dashboard-preview.svg)
+
+### Router inventory
+
+![Router inventory preview with status, CPU, memory and interface details](docs/routers-preview.svg)
+
+### Users and devices
+
+![Users and devices preview with peer inventory, status, router and traffic](docs/devices-preview.svg)
+
+### Traffic, diagnostics, audit log and settings
+
+![Operations pages preview showing traffic analytics, diagnostics checks, audit events and workspace settings](docs/operations-preview.svg)
+
+## Demo pages
+
+Every sidebar section has its own view and hash route. You can open a section directly, refresh it, or use the browser's Back/Forward navigation.
+
+| Section | Route | What's inside |
+|---|---|---|
+| **Overview** | [Open Overview](https://nestho.github.io/wireguard-manager/#/overview) | Summary metrics, router health, traffic overview, recent peers, and demo-mode notice |
+| **Routers** | [Open Routers](https://nestho.github.io/wireguard-manager/#/routers) | Router cards, RouterOS version, interface, location, health status, CPU/memory utilization, uptime, and last-check examples |
+| **Users & devices** | [Open Users & devices](https://nestho.github.io/wireguard-manager/#/users-and-devices) | Searchable peer inventory, owner/device details, assigned sample address, router, connection state, last-seen value, and RX/TX usage |
+| **Traffic** | [Open Traffic](https://nestho.github.io/wireguard-manager/#/traffic) | Illustrative traffic charts, time-period selector, total transfer, and per-device usage breakdown |
+| **Diagnostics** | [Open Diagnostics](https://nestho.github.io/wireguard-manager/#/diagnostics) | Run local demo checks for inventory, interface health, duplicate sample addresses, stale handshakes, and resource thresholds |
+| **Audit log** | [Open Audit log](https://nestho.github.io/wireguard-manager/#/audit-log) | Searchable sample events and UI actions recorded during the demo session |
+| **Settings** | [Open Settings](https://nestho.github.io/wireguard-manager/#/settings) | Interface preferences, demo data backup/export and reset controls, plus a reminder that no live router is connected |
+
+## Current demo capabilities
+
+- **Seven navigable views** with individual content, headings, and hash routes.
+- **Sample inventory:** 12 routers and 78 synthetic device/peer records.
+- **Router inventory:** sample locations, interface names, RouterOS versions, health, uptime, CPU, and memory.
+- **Peer/device inventory:** search and filters, router association, sample address, status, platform, last-seen, and illustrative RX/TX counters.
+- **Demo interactions:** add/edit sample records, toggle a sample device's state, remove demo entries, inspect router/device details, and receive UI notifications.
+- **Traffic view:** visual usage summaries and per-device breakdowns derived from the sample dataset.
+- **Diagnostics:** simulated checks that report results based on local demo data; they do not probe a router or network.
+- **Audit view:** demo actions can add entries to the local audit list.
+- **Data portability:** CSV exports for inventory/audit data and a JSON demo-data backup, where offered by the UI.
+- **Preferences and local persistence:** supported demo changes and selected interface preferences are stored in the current browser's local storage.
+- **Responsive layout:** desktop sidebar and mobile navigation.
+- **GitHub Pages deployment:** GitHub Actions type-checks/builds the frontend and deploys the static site on pushes to `main`.
+
+## Try the demo
+
+1. Open the [live demo](https://nestho.github.io/wireguard-manager/).
+2. Select **Routers**, **Users & devices**, **Traffic**, **Diagnostics**, **Audit log**, or **Settings** from the sidebar.
+3. Use search/filter controls in the inventory and audit views.
+4. Open a router/device detail or use the available sample-record actions.
+5. Export the displayed sample data if you need to inspect the formats.
+6. Use **Settings** to explore demo preferences and reset options.
+
+Because this is a static frontend demo, changes are local to your browser. Resetting browser storage or opening another browser/device may restore the initial seed data.
 
 ## Run locally
 
-Requirements: Node.js 20+ and npm.
+### Requirements
+
+- Node.js 20 or newer
+- npm
+
+### Install and start
 
 ```bash
 git clone https://github.com/nestho/wireguard-manager.git
@@ -36,38 +87,70 @@ npm install
 npm run dev
 ```
 
-Vite prints a local URL (usually `http://localhost:5173`). To create and preview a production build:
+Vite prints the local development URL, usually `http://localhost:5173`.
+
+### Production build
 
 ```bash
 npm run build
 npm run preview
 ```
 
-## Demo data
+The build runs TypeScript project checks before creating the Vite production bundle.
 
-Synthetic example records live in [`demo/seed-data.json`](demo/seed-data.json). They use documentation-only IP ranges where possible and do not contain real router addresses, private keys, client configurations, or QR codes. The initial UI currently renders its own local sample objects; the JSON file is provided as a starter fixture for the next implementation step.
+## Project layout
 
-## Safety and design principles
+```text
+wireguard-manager/
+├── .github/workflows/ci.yml    # CI build and GitHub Pages deployment
+├── demo/seed-data.json         # Synthetic example fixture
+├── docs/
+│   ├── dashboard-preview.svg   # Overview screenshot illustration
+│   ├── routers-preview.svg     # Router inventory illustration
+│   ├── devices-preview.svg     # Users/devices illustration
+│   └── operations-preview.svg  # Traffic, diagnostics, audit and settings
+├── src/
+│   ├── App.tsx                 # Demo views, sample state, and interactions
+│   ├── main.tsx                # React entry point
+│   └── styles.css              # Responsive dashboard styling
+├── index.html
+├── package.json
+└── vite.config.ts
+```
 
-This project is intended to become a **local-first management tool**. Before any live RouterOS integration is implemented, the design should preserve these safeguards:
+The app currently defines its main demo seed objects in `src/App.tsx`; `demo/seed-data.json` is a separate starter fixture and is not yet the runtime source of truth.
 
-- Never include router credentials, private keys, client configuration files, or QR codes in logs, screenshots, issues, or demo fixtures.
-- Keep real inventory separate from demo data.
-- Make read-only inspection the default; clearly preview mutations before applying them.
-- Require explicit confirmation for peer creation, revocation, and other changes that affect a live router.
-- Back up relevant configuration before writes and provide a clear failure/rollback path.
-- Do not rotate existing peer keys or reassign peer addresses as a side effect of setup.
-- Treat router output and user-supplied inventory as untrusted input.
+## Current limitations and next milestones
 
-The current prototype **does not implement these live-operation safeguards yet**, because it does not perform live operations.
+This is a UI prototype, **not yet a RouterOS management product**.
 
-## Planned architecture
+- [ ] Secure backend/API for RouterOS connectivity (SSH or RouterOS API)
+- [ ] Authentication, session handling, and role-based authorization
+- [ ] Router onboarding and connection testing with safe, read-only defaults
+- [ ] Real peer discovery and synchronization
+- [ ] Peer creation/revocation with address validation, dry-run preview, explicit confirmation, and rollback
+- [ ] Safe private-key/configuration handling and client config/QR generation
+- [ ] Server-side persistence, migrations, and reliable backup/restore
+- [ ] Live metrics and traffic collection with timestamps and source status
+- [ ] Audit trail persisted server-side and protected against tampering
+- [ ] Automated unit, integration, accessibility, and end-to-end tests
+- [ ] Release packaging and deployment documentation
 
-The dashboard is built with React, TypeScript, and Vite. A future backend can own RouterOS connectivity and secret handling; browser code should never receive router passwords, SSH private keys, or WireGuard private keys. Prefer a narrow backend API, authenticated local access, and explicit per-router permissions.
+## Security principles for future live integration
+
+- Never put router passwords, SSH private keys, WireGuard private keys, client configurations, or QR codes in frontend code, screenshots, issues, logs, or demo fixtures.
+- Keep demo data clearly separated from real router inventory.
+- Use authenticated backend requests; do not connect the browser directly to routers or expose secrets to client-side JavaScript.
+- Default to read-only discovery. Show a clear preview before any live mutation.
+- Require explicit confirmation for peer creation, revocation, or configuration changes.
+- Validate peer addresses and prevent duplicate assignments before applying changes.
+- Back up relevant router configuration before writes and document recovery/rollback behavior.
+- Treat router responses and imported inventory as untrusted input.
+- Label timestamps, stale data, connection failures, and demo/synthetic values unambiguously.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please do not attach production configuration exports or secrets to bug reports. Use redacted logs and synthetic examples.
+Issues and pull requests are welcome. For bug reports, include steps to reproduce and redacted logs where useful. **Never attach production configuration exports, credentials, private keys, client configs, or QR codes.** Use synthetic examples.
 
 ## License
 

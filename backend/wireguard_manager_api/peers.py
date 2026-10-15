@@ -4,6 +4,7 @@ import ipaddress
 import re
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from .audit import record_event
 from .config import get_settings
@@ -11,8 +12,10 @@ from .db import get_db
 from .dependencies import current_user, require_roles
 from .models import Peer, Router, User
 from .routeros import RouterOSClient, RouterConnectionError
-from .schemas import PeerCreate
-from .security import encrypt_secret
+from .schemas import ClientConfigRequest, PeerCreate
+from .security import decrypt_secret, encrypt_secret
+from io import BytesIO
+import qrcode
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, PublicFormat, NoEncryption
 
@@ -159,3 +162,59 @@ async def revoke_peer(router_id: int, peer_id: int, confirm: bool = False, db: S
             raise HTTPException(500, "Database commit failed and RouterOS re-enable rollback failed; reconcile manually") from rollback_exc
         raise HTTPException(500, "Database commit failed; router peer was re-enabled") from exc
     return {"id": peer.id, "status": peer.status, "revoked_at": datetime.now(timezone.utc).isoformat()}
+
+
+def _client_config(peer: Peer, body: ClientConfigRequest, db: Session, user: User) -> str:
+    if peer.status != "active" or not peer.private_key_ciphertext:
+        raise HTTPException(409, "Client configuration is unavailable for a revoked or unsynchronized peer")
+    try:
+        private_key = decrypt_secret(peer.private_key_ciphertext)
+    except RuntimeError as exc:
+        raise HTTPException(500, "Peer key cannot be decrypted; verify the configured encryption key and backups") from exc
+    config = (
+        "[Interface]\n"
+        f"PrivateKey = {private_key}\n"
+        f"Address = {peer.allowed_address}\n"
+        f"DNS = {body.dns}\n\n"
+        "[Peer]\n"
+        f"PublicKey = {body.server_public_key}\n"
+        f"AllowedIPs = {body.allowed_ips}\n"
+        f"Endpoint = {body.endpoint}\n"
+        f"PersistentKeepalive = {body.persistent_keepalive}\n"
+    )
+    # Audit metadata only; never include key material or the generated config in logs.
+    record_event(db, user.username, "peer.config.issue", "peer", str(peer.id), details={"router_id": peer.router_id, "format": "wireguard-conf"})
+    db.commit()
+    return config
+
+def _config_peer(router_id: int, peer_id: int, db: Session) -> Peer:
+    peer = db.query(Peer).filter(Peer.id == peer_id, Peer.router_id == router_id).first()
+    if not peer:
+        raise HTTPException(404, "Peer not found")
+    return peer
+
+@router.post("/{peer_id}/config")
+def download_client_config(router_id: int, peer_id: int, body: ClientConfigRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    peer = _config_peer(router_id, peer_id, db)
+    config = _client_config(peer, body, db, user)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", peer.name)[:80] or f"peer-{peer.id}"
+    return Response(content=config, media_type="text/plain; charset=utf-8", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f'attachment; filename="{safe_name}.conf"',
+    })
+
+@router.post("/{peer_id}/qr")
+def download_client_qr(router_id: int, peer_id: int, body: ClientConfigRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    peer = _config_peer(router_id, peer_id, db)
+    config = _client_config(peer, body, db, user)
+    image = qrcode.make(config)
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f'attachment; filename="peer-{peer.id}.png"',
+    })

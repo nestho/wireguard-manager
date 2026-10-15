@@ -71,9 +71,9 @@ async def inspect_optimizer(server_id: int, db: Session = Depends(get_db), user:
         "printf '__WGM_CPU__\n'; lscpu 2>/dev/null | grep -E '^(Architecture|CPU\\(s\\)|On-line CPU|Thread|Core|Socket|Model name|CPU max MHz|Virtualization):' | head -30; "
         "printf '__WGM_MEMORY__\n'; free -b 2>/dev/null; "
         "printf '__WGM_LINKS__\n'; ip -s -br link 2>/dev/null; "
-        "printf '__WGM_SYSCTLS__\n'; for k in net.core.rmem_max net.core.wmem_max net.core.netdev_max_backlog net.ipv4.ip_forward net.ipv4.conf.all.rp_filter net.ipv4.tcp_congestion_control net.core.default_qdisc; do printf '%s=' "$k"; sysctl -n "$k" 2>/dev/null || true; done; "
+        "printf '__WGM_SYSCTLS__\n'; for k in net.core.rmem_max net.core.wmem_max net.core.netdev_max_backlog net.ipv4.ip_forward net.ipv4.conf.all.rp_filter net.ipv4.tcp_congestion_control net.core.default_qdisc; do printf '%s=' \"$k\"; sysctl -n \"$k\" 2>/dev/null || true; done; "
         "printf '__WGM_MODULES__\n'; (lsmod 2>/dev/null | grep -E '^(wireguard|sch_fq|tcp_bbr) ' || true); "
-        "printf '__WGM_OFFLOADS__\n'; for n in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -v '^lo$' | head -8); do printf '%s\n' "### $n"; ethtool -k "$n" 2>/dev/null | grep -E '^(generic-receive-offload|generic-segmentation-offload|tcp-segmentation-offload|tx-checksumming|rx-checksumming):' || true; done; "
+        "printf '__WGM_OFFLOADS__\n'; for n in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -v '^lo$' | head -8); do printf '%s\n' \"### $n\"; ethtool -k \"$n\" 2>/dev/null | grep -E '^(generic-receive-offload|generic-segmentation-offload|tcp-segmentation-offload|tx-checksumming|rx-checksumming):' || true; done; "
         "printf '__WGM_QDISC__\n'; tc qdisc show 2>/dev/null | head -30; "
         "printf '__WGM_WG__\n'; if command -v wg >/dev/null 2>&1; then wg show interfaces 2>/dev/null; else echo 'wg not installed'; fi; "
     )

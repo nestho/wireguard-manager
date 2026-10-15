@@ -12,6 +12,7 @@ from .peers import router as peers_router
 from .admin import router as admin_router
 from .linux_servers import router as linux_servers_router
 from .linux_peers import router as linux_peers_router
+from .schemas import HealthResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("wireguard_manager")
@@ -37,9 +38,9 @@ app.include_router(linux_peers_router)
 def liveness() -> dict[str, str]:
     return {"status": "ok"}
 
-@app.get("/api/v1/health", tags=["health"])
-def readiness() -> dict[str, str]:
-    return {"status": "ready", "service": "wireguard-manager-api", "providers": ["mikrotik-routeros", "linux-ssh"], "router_connectivity": "configured-per-router", "linux_connectivity": "configured-per-server"}
+@app.get("/api/v1/health", tags=["health"], response_model=HealthResponse)
+def readiness() -> HealthResponse:
+    return HealthResponse(status="ready", service="wireguard-manager-api", providers=["mikrotik-routeros", "linux-ssh"], router_connectivity="configured-per-router", linux_connectivity="configured-per-server")
 
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

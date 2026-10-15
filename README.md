@@ -155,3 +155,71 @@ Issues and pull requests are welcome. For bug reports, include steps to reproduc
 ## License
 
 Distributed under the MIT License. See [LICENSE](LICENSE).
+
+
+## Backend API (early development)
+
+The repository now includes a separate FastAPI service under `backend/`. The frontend demo remains illustrative and is not yet wired to this API.
+
+### Implemented API foundation
+
+- JWT access-token login and a `/me` endpoint.
+- Argon2 password hashing and admin/operator/viewer authorization checks.
+- Admin-only user provisioning and one-time environment-configured bootstrap endpoint.
+- SQLAlchemy persistence models for users, routers, peers, and audit events.
+- Encrypted-at-rest router credentials and peer private-key field using a Fernet key supplied outside the repository.
+- Router registration, HTTPS/TLS-verified connection testing, and read-only RouterOS REST discovery of WireGuard interfaces/peers.
+- Private-address-first router host policy; public hosts are blocked unless explicitly enabled in deployment configuration.
+- IP-prefix validation and dry-run peer creation preview.
+- Hash-linked audit events and admin audit-chain verification endpoint.
+- CI runs backend unit/API tests in addition to the frontend build.
+
+### API endpoints
+
+| Method | Endpoint | Access / behavior |
+|---|---|---|
+| GET | `/healthz` | Liveness |
+| GET | `/api/v1/health` | API readiness |
+| POST | `/api/v1/admin/bootstrap` | One-time bootstrap, only when configured and no users exist |
+| POST | `/api/v1/auth/login` | Obtain a short-lived JWT access token |
+| GET | `/api/v1/auth/me` | Current authenticated user |
+| POST | `/api/v1/auth/users` | Admin creates a user and assigns a role |
+| GET / POST | `/api/v1/routers` | Authenticated inventory / operator-or-admin registration |
+| POST | `/api/v1/routers/{id}/test` | Operator-or-admin HTTPS connection test |
+| GET | `/api/v1/routers/{id}/wireguard/peers` | Authenticated read-only peer/interface discovery |
+| POST | `/api/v1/routers/{id}/peers/preview` | Validate and preview a proposed peer |
+| POST | `/api/v1/routers/{id}/peers` | Deliberately disabled (HTTP 501) pending verified rollback and consistency checks |
+| GET | `/api/v1/admin/audit/verify` | Admin verifies the audit hash chain |
+
+### Run the backend locally
+
+Requires Python 3.11 or newer.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+cp backend/.env.example .env
+```
+
+Generate and configure both secrets before running the service. Do not commit the resulting values:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+Set the first output as `WGM_JWT_SECRET` and the second as `WGM_ENCRYPTION_KEY` in the protected environment. Configure bootstrap username/password only for initial setup, start the API, then remove bootstrap credentials from the environment after creating the admin.
+
+```bash
+uvicorn wireguard_manager_api.main:app --reload --app-dir backend
+python -m pytest backend/tests
+```
+
+Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedicated RouterOS account with minimal permissions and a valid HTTPS certificate. Never disable TLS verification to bypass certificate errors.
+
+### Current backend limitations
+
+This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Refresh-session revocation, rate limiting, formal Alembic migrations, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. The API is not connected to the frontend demo yet.
+
+See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.

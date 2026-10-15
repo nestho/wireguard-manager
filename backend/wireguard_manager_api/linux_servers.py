@@ -108,7 +108,7 @@ async def inspect_linux_server(server_id: int, db: Session = Depends(get_db), us
     version = values.get("VERSION_ID", "unknown")
     tools = output.split("--TOOLS--", 1)[-1]
     pm = next((name for name in ("apt-get", "dnf", "yum", "zypper", "apk") if re.search(r"(^|/)"+re.escape(name)+r"\s*$", tools, re.M)), None)
-    installed = bool(re.search(r"(^|/)wg\\s*$", tools, re.M) and re.search(r"(^|/)wg-quick\\s*$", tools, re.M))
+    installed = bool(re.search(r"(^|/)wg\s*$", tools, re.M) and re.search(r"(^|/)wg-quick\s*$", tools, re.M))
     supported = distro in {"ubuntu", "debian", "linuxmint", "pop"} and pm == "apt-get" or distro in {"fedora", "rhel", "centos", "rocky", "almalinux", "ol"} and pm in {"dnf", "yum"} or distro in {"opensuse-leap", "opensuse-tumbleweed", "sles"} and pm == "zypper" or distro in {"alpine"} and pm == "apk"
     server.distro_id, server.distro_version, server.package_manager = distro, version, pm
     server.wireguard_installed = installed

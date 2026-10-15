@@ -1,7 +1,5 @@
 """Narrow RouterOS REST client. Uses TLS verification and exposes read operations only."""
 import ipaddress
-import socket
-from urllib.parse import urlsplit
 import httpx
 from .config import get_settings
 from .security import decrypt_secret
@@ -10,23 +8,17 @@ class RouterConnectionError(RuntimeError):
     pass
 
 def validate_router_host(host: str) -> str:
-    host = host.strip().rstrip(".")
-    if not host or any(c in host for c in "/\\@?#"):
-        raise ValueError("Host must be a hostname or IP address, without URL/path components")
+    """Accept IP literals only to avoid DNS rebinding and hostname-based SSRF."""
+    raw = host.strip()
     try:
-        ip = ipaddress.ip_address(host)
-        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-            raise ValueError("Loopback, link-local, multicast, and unspecified addresses are not allowed")
-        if not ip.is_private and not get_settings().allow_public_router_hosts:
-            raise ValueError("Public router addresses are disabled by default; enable explicitly after reviewing network egress controls")
-        return str(ip)
+        ip = ipaddress.ip_address(raw)
     except ValueError as exc:
-        if "not allowed" in str(exc) or "disabled" in str(exc):
-            raise
-    labels = host.split(".")
-    if len(host) > 253 or any(not label or len(label) > 63 or label.startswith("-") or label.endswith("-") or not all(c.isalnum() or c == "-" for c in label) for label in labels):
-        raise ValueError("Invalid hostname")
-    return host
+        raise ValueError("Router host must be an IP address; hostnames are disabled to prevent DNS rebinding") from exc
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+        raise ValueError("Loopback, link-local, multicast, reserved, and unspecified addresses are not allowed")
+    if not ip.is_private and not get_settings().allow_public_router_hosts:
+        raise ValueError("Public router addresses are disabled by default; enable explicitly after reviewing network egress controls")
+    return str(ip)
 
 class RouterOSClient:
     def __init__(self, host: str, port: int, username: str, encrypted_password: str, verify_tls: bool = True):
@@ -52,6 +44,4 @@ class RouterOSClient:
                     raise RouterConnectionError("Unexpected RouterOS response format")
                 return data
         except (httpx.HTTPError, ValueError) as exc:
-            if isinstance(exc, RouterConnectionError):
-                raise
             raise RouterConnectionError("Router request failed; check reachability, HTTPS, certificate, and read-only account") from exc

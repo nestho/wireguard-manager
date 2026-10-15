@@ -56,3 +56,56 @@ class UserView(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=40, max_length=256)
+
+class ClientConfigRequest(BaseModel):
+    server_public_key: str = Field(min_length=44, max_length=44)
+    endpoint: str = Field(min_length=3, max_length=255)
+    dns: str = Field(default="1.1.1.1", min_length=1, max_length=255)
+    allowed_ips: str = Field(default="0.0.0.0/0, ::/0", min_length=1, max_length=512)
+    persistent_keepalive: int = Field(default=25, ge=0, le=65535)
+
+    @field_validator("server_public_key")
+    @classmethod
+    def valid_server_key(cls, value: str) -> str:
+        import base64
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except Exception as exc:
+            raise ValueError("server_public_key must be base64-encoded WireGuard key material") from exc
+        if len(decoded) != 32:
+            raise ValueError("server_public_key must decode to exactly 32 bytes")
+        return value
+
+    @field_validator("endpoint")
+    @classmethod
+    def valid_endpoint(cls, value: str) -> str:
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9.:[\]-]+:[0-9]{1,5}", value):
+            raise ValueError("endpoint must be a host or IP and port, e.g. vpn.example.com:51820")
+        port = int(value.rsplit(":", 1)[1])
+        if not 1 <= port <= 65535:
+            raise ValueError("endpoint port must be between 1 and 65535")
+        return value
+
+    @field_validator("dns")
+    @classmethod
+    def valid_dns(cls, value: str) -> str:
+        import ipaddress
+        for server in value.split(","):
+            try:
+                ipaddress.ip_address(server.strip())
+            except ValueError as exc:
+                raise ValueError("dns must be a comma-separated list of IP addresses") from exc
+        return ", ".join(part.strip() for part in value.split(","))
+
+    @field_validator("allowed_ips")
+    @classmethod
+    def valid_allowed_ips(cls, value: str) -> str:
+        import ipaddress
+        try:
+            networks = [str(ipaddress.ip_network(part.strip(), strict=False)) for part in value.split(",")]
+        except ValueError as exc:
+            raise ValueError("allowed_ips must be a comma-separated list of valid IP networks") from exc
+        if not networks:
+            raise ValueError("At least one allowed IP network is required")
+        return ", ".join(networks)

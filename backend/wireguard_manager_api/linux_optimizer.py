@@ -6,6 +6,7 @@ It deliberately does not change CPU governor, IRQ affinity, NIC offloads, MTU,
 firewall, routing, congestion control, or kernel packages automatically.
 """
 import re
+import shlex
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -58,8 +59,57 @@ def _section(output: str, name: str) -> str:
 
 
 def _int_sysctl(value: str) -> int | None:
-    match = re.search(r"-?\d+", value)
-    return int(match.group(0)) if match else None
+    """Parse a complete integer sysctl value; do not accept numeric fragments."""
+    match = re.fullmatch(r"\s*(-?\d+)\s*", value)
+    return int(match.group(1)) if match else None
+
+
+def _build_apply_script(recommendation_ids: list[str], previous: dict[str, int]) -> str:
+    """Build a fixed-allowlist shell transaction with best-effort compensation."""
+    unknown = sorted(set(recommendation_ids) - set(TUNING))
+    if unknown or len(set(recommendation_ids)) != len(recommendation_ids):
+        raise ValueError("Unsupported or duplicate optimizer recommendation IDs")
+    expected_keys = {TUNING[rid]["key"] for rid in recommendation_ids}
+    if set(previous) != expected_keys or any(type(value) is not int for value in previous.values()):
+        raise ValueError("Previous sysctl values must be integers for every selected setting")
+
+    content = "# Managed by WireGuard Manager; remove this file to revert persistent overrides.\n"
+    content += "".join(
+        f"{TUNING[rid]['key']} = {TUNING[rid]['value']}\n"
+        for rid in recommendation_ids
+    )
+    lines = [
+        "set -eu",
+        f"dropin={shlex.quote(DROPIN)}",
+        "tmp=$(mktemp /etc/sysctl.d/.wgm-optimizer.XXXXXX)",
+        "created=0",
+        "rollback() {",
+        "  rc=$?",
+        "  trap - EXIT",
+        '  if [ "$rc" -ne 0 ]; then',
+        '    if [ "$created" -eq 1 ]; then rm -f -- "$dropin" || true; fi',
+    ]
+    for key, value in previous.items():
+        lines.append(f"    sysctl -w {key}={value} >/dev/null 2>&1 || true")
+    lines.extend([
+        "  fi",
+        '  rm -f -- "$tmp" 2>/dev/null || true',
+        '  exit "$rc"',
+        "}",
+        "trap rollback EXIT",
+        "printf %s " + shlex.quote(content) + ' > "$tmp"',
+        'chmod 0644 "$tmp"',
+        # ln is atomic and refuses to replace a pre-existing destination.
+        'ln "$tmp" "$dropin"',
+        "created=1",
+        'rm -f -- "$tmp"',
+    ])
+    lines.extend(
+        f"sysctl -w {TUNING[rid]['key']}={TUNING[rid]['value']}"
+        for rid in recommendation_ids
+    )
+    lines.append("trap - EXIT")
+    return "\n".join(lines)
 
 
 @router.post("/{server_id}/optimizer/inspect")
@@ -155,19 +205,15 @@ async def apply_optimizer(server_id: int, body: OptimizerApplyRequest, db: Sessi
         previous = {}
         for rec_id in body.recommendation_ids:
             key = TUNING[rec_id]["key"]
-            previous[key] = (await _run(conn, f"sysctl -n {key}", timeout=10)).strip()
-        lines = ["# Managed by WireGuard Manager; remove this file to revert persistent overrides."]
-        lines += [f"{TUNING[rid]['key']} = {TUNING[rid]['value']}" for rid in body.recommendation_ids]
-        content = "\n".join(lines) + "\n"
-        # Fixed path and allowlisted fixed values; no request-controlled shell text is interpolated.
-        apply_commands = "; ".join(
-            f"sysctl -w {TUNING[rid]['key']}={TUNING[rid]['value']}"
-            for rid in body.recommendation_ids
-        )
-        command = "sudo -n sh -c " + __import__("shlex").quote(
-            "set -eu; printf %s " + __import__("shlex").quote(content) +
-            " > " + DROPIN + "; chmod 0644 " + DROPIN + "; " + apply_commands
-        )
+            raw_value = (await _run(conn, f"sysctl -n {key}", timeout=10)).strip()
+            parsed_value = _int_sysctl(raw_value)
+            if parsed_value is None:
+                raise HTTPException(502, f"Could not safely parse the current value of {key}; no changes were applied")
+            previous[key] = parsed_value
+        # The remote script creates the drop-in without overwriting an existing file.
+        # If any write fails, its EXIT trap removes the new drop-in and restores prior runtime values.
+        script = _build_apply_script(body.recommendation_ids, previous)
+        command = "sudo -n sh -c " + shlex.quote(script)
         await _run(conn, command, timeout=30)
     except HTTPException:
         raise

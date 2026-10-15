@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str = Field(default="", repr=False)
     allowed_origins: str = "http://localhost:5173"
     allow_public_router_hosts: bool = False
+    enable_peer_mutations: bool = False
 
 @lru_cache
 def get_settings() -> Settings:

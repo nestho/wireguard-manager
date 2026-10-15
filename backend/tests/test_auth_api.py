@@ -32,3 +32,22 @@ def test_login_and_me():
     assert me.status_code == 200 and me.json()["role"] == "admin"
 def test_router_list_requires_authentication():
     assert client.get("/api/v1/routers").status_code == 401
+
+def test_refresh_token_rotates_and_old_token_is_rejected():
+    login = client.post("/api/v1/auth/login", json={"username": "testadmin", "password": "testing-password-123"})
+    assert login.status_code == 200
+    old_refresh = login.json()["refresh_token"]
+    refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
+    assert refreshed.status_code == 200
+    new_refresh = refreshed.json()["refresh_token"]
+    assert new_refresh != old_refresh
+    replay = client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
+    assert replay.status_code == 401
+    assert client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh}).status_code == 200
+
+def test_logout_revokes_refresh_token():
+    login = client.post("/api/v1/auth/login", json={"username": "testadmin", "password": "testing-password-123"})
+    token = login.json()["refresh_token"]
+    logout = client.post("/api/v1/auth/logout", json={"refresh_token": token})
+    assert logout.status_code == 204
+    assert client.post("/api/v1/auth/refresh", json={"refresh_token": token}).status_code == 401

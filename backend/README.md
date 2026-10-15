@@ -36,6 +36,7 @@ Run tests with `python -m pytest backend/tests`. API documentation is available 
 - Router registration, TLS-verified RouterOS REST connectivity test, read-only peer discovery, point-in-time traffic counters, and bounded read-only diagnostics.
 - IP-literal host validation to reduce DNS rebinding/SSRF risk; public router addresses disabled by default.
 - Peer address validation, router-side overlap checks, dry-run preview, and create/revoke endpoints guarded by `WGM_ENABLE_PEER_MUTATIONS=false` by default. Creation attempts compensating deletion if persistence fails; revocation disables peers so re-enable rollback is possible.
+- Audited WireGuard `.conf` and QR PNG delivery with strict server key/endpoint input validation and no-store response headers. Treat both outputs as secrets: the QR embeds the entire client configuration.
 - Hash-linked audit records with chain verification.
 
 ## Important limitations

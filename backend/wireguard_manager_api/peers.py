@@ -136,14 +136,27 @@ async def revoke_peer(router_id: int, peer_id: int, confirm: bool = False, db: S
     if not peer.router_peer_id:
         raise HTTPException(409, "Peer has no synchronized RouterOS identifier; refusing unsafe revoke")
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
+    remote_path = _router_peer_path(peer.router_peer_id)
     try:
-        await client.delete(_router_peer_path(peer.router_peer_id))
+        # Disable first rather than delete, allowing a compensating rollback if DB commit fails.
+        await client.patch(remote_path, {"disabled": "true"})
     except RouterConnectionError as exc:
-        record_event(db, user.username, "peer.revoke", "peer", str(peer.id), outcome="failed", details={"reason": "router_delete_failed"})
+        record_event(db, user.username, "peer.revoke", "peer", str(peer.id), outcome="failed", details={"reason": "router_disable_failed"})
         db.commit()
-        raise HTTPException(502, "RouterOS did not confirm peer revocation; local state was not changed") from exc
+        raise HTTPException(502, "RouterOS did not confirm peer disable; local state was not changed") from exc
+    old_key = peer.private_key_ciphertext
     peer.status = "revoked"
     peer.private_key_ciphertext = None
-    record_event(db, user.username, "peer.revoke", "peer", str(peer.id), details={"router_id": router_id, "router_peer_id": peer.router_peer_id})
-    db.commit()
+    record_event(db, user.username, "peer.revoke", "peer", str(peer.id), details={"router_id": router_id, "router_peer_id": peer.router_peer_id, "router_action": "disable"})
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        try:
+            await client.patch(remote_path, {"disabled": "false"})
+        except Exception as rollback_exc:
+            record_event(db, user.username, "peer.revoke.rollback_failed", "peer", str(peer_id), outcome="critical", details={"router_id": router_id, "router_peer_id": peer.router_peer_id})
+            db.commit()
+            raise HTTPException(500, "Database commit failed and RouterOS re-enable rollback failed; reconcile manually") from rollback_exc
+        raise HTTPException(500, "Database commit failed; router peer was re-enabled") from exc
     return {"id": peer.id, "status": peer.status, "revoked_at": datetime.now(timezone.utc).isoformat()}

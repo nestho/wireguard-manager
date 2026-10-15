@@ -12,6 +12,7 @@ from .peers import router as peers_router
 from .admin import router as admin_router
 from .linux_servers import router as linux_servers_router
 from .linux_peers import router as linux_peers_router
+from .linux_optimizer import router as linux_optimizer_router
 from .schemas import HealthResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -33,6 +34,7 @@ app.include_router(peers_router)
 app.include_router(admin_router)
 app.include_router(linux_servers_router)
 app.include_router(linux_peers_router)
+app.include_router(linux_optimizer_router)
 
 @app.get("/healthz", tags=["health"])
 def liveness() -> dict[str, str]:

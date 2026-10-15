@@ -188,7 +188,7 @@ The repository now includes a separate FastAPI service under `backend/`. The fro
 | POST | `/api/v1/routers/{id}/test` | Operator-or-admin HTTPS connection test |
 | GET | `/api/v1/routers/{id}/wireguard/peers` | Authenticated read-only peer/interface discovery |
 | POST | `/api/v1/routers/{id}/peers/preview` | Validate and preview a proposed peer |
-| POST | `/api/v1/routers/{id}/peers` | Deliberately disabled (HTTP 501) pending verified rollback and consistency checks |
+| POST | `/api/v1/routers/{id}/peers` | Create peer with explicit confirmation; returns 503 unless `WGM_ENABLE_PEER_MUTATIONS=true` |\n| DELETE | `/api/v1/routers/{id}/peers/{peer_id}?confirm=true` | Disable/revoke peer with explicit confirmation; gated by `WGM_ENABLE_PEER_MUTATIONS` |
 | GET | `/api/v1/admin/audit/verify` | Admin verifies the audit hash chain |
 
 ### Run the backend locally
@@ -221,6 +221,6 @@ Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedi
 
 ### Current backend limitations
 
-This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
+This is **not yet a production-ready RouterOS management product**. Peer mutations are implemented behind the default-off `WGM_ENABLE_PEER_MUTATIONS` gate. Creation checks interface existence and overlapping router-side/local addresses, and attempts compensating deletion if local persistence fails. Revocation disables rather than deletes the RouterOS peer so a re-enable rollback can be attempted. Keep the gate off until integration tests against the exact RouterOS versions and timeout-after-write reconciliation are complete; client configuration delivery is still unfinished. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
 
 See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.

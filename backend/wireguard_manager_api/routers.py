@@ -66,3 +66,62 @@ async def read_peers(router_id: int, db: Session = Depends(get_db), user: User =
     except RouterConnectionError:
         raise HTTPException(502, "Unable to read WireGuard inventory from router")
     return {"router_id": item.id, "interfaces": interfaces, "peers": peers, "read_only": True, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/{router_id}/traffic")
+async def live_traffic(router_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Read current RouterOS peer counters; values are point-in-time, not historical analytics."""
+    item = db.get(Router, router_id)
+    if not item:
+        raise HTTPException(404, "Router not found")
+    try:
+        raw = await client_for(item).get("/interface/wireguard/peers")
+    except RouterConnectionError:
+        raise HTTPException(502, "Unable to collect traffic counters from router")
+    peers = raw if isinstance(raw, list) else [raw]
+    collected_at = datetime.now(timezone.utc).isoformat()
+    result = []
+    for peer in peers:
+        result.append({
+            "router_peer_id": peer.get(".id"),
+            "name": peer.get("name") or peer.get("comment") or peer.get("public-key", "unknown")[:12],
+            "public_key": peer.get("public-key"),
+            "allowed_address": peer.get("allowed-address"),
+            "rx_bytes": int(peer.get("rx", 0) or 0),
+            "tx_bytes": int(peer.get("tx", 0) or 0),
+            "last_handshake": peer.get("last-handshake"),
+            "disabled": str(peer.get("disabled", "false")).lower() == "true",
+            "collected_at": collected_at,
+        })
+    record_event(db, user.username, "router.traffic_read", "router", str(item.id), details={"peer_count": len(result)})
+    db.commit()
+    return {"router_id": item.id, "collected_at": collected_at, "historical": False, "peers": result}
+
+@router.get("/{router_id}/diagnostics")
+async def router_diagnostics(router_id: int, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    """Run a bounded set of read-only checks against a registered router."""
+    item = db.get(Router, router_id)
+    if not item:
+        raise HTTPException(404, "Router not found")
+    checks = []
+    client = client_for(item)
+    for name, path in (
+        ("system_resource", "/system/resource"),
+        ("system_identity", "/system/identity"),
+        ("wireguard_interfaces", "/interface/wireguard"),
+        ("wireguard_peers", "/interface/wireguard/peers"),
+    ):
+        started = datetime.now(timezone.utc)
+        try:
+            value = await client.get(path)
+            count = len(value) if isinstance(value, list) else 1
+            checks.append({"name": name, "status": "ok", "item_count": count, "duration_ms": int((datetime.now(timezone.utc) - started).total_seconds() * 1000)})
+        except RouterConnectionError:
+            checks.append({"name": name, "status": "failed", "item_count": None, "duration_ms": int((datetime.now(timezone.utc) - started).total_seconds() * 1000)})
+            break
+    overall = "healthy" if all(check["status"] == "ok" for check in checks) else "degraded"
+    item.last_status = overall
+    item.last_check_at = datetime.now(timezone.utc)
+    record_event(db, user.username, "router.diagnostics", "router", str(item.id), outcome="success" if overall == "healthy" else "warning", details={"checks": checks})
+    db.commit()
+    return {"router_id": item.id, "status": overall, "checked_at": item.last_check_at.isoformat(), "checks": checks, "read_only": True}

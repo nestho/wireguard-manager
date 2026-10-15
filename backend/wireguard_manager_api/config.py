@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     allow_public_linux_hosts: bool = False
     enable_peer_mutations: bool = False
     enable_linux_mutations: bool = False
+    enable_linux_optimizer_mutations: bool = False
 
 @lru_cache
 def get_settings() -> Settings:

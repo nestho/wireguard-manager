@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault("WGM_JWT_SECRET", "test-only-secret-which-is-long-enough-32-chars")
+os.environ.setdefault("WGM_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

@@ -39,7 +39,7 @@ def liveness() -> dict[str, str]:
 
 @app.get("/api/v1/health", tags=["health"])
 def readiness() -> dict[str, str]:
-    return {"status": "ready", "service": "wireguard-manager-api", "router_connectivity": "configured-per-router"}
+    return {"status": "ready", "service": "wireguard-manager-api", "providers": ["mikrotik-routeros", "linux-ssh"], "router_connectivity": "configured-per-router", "linux_connectivity": "configured-per-server"}
 
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

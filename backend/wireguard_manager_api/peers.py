@@ -101,7 +101,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         })
         remote_id = created.get(".id")
         if not remote_id:
-            raise RouterConnectionError("RouterOS created a peer but did not return its identifier; manual reconciliation is required")
+            raise HTTPException(502, "RouterOS may have created a peer but returned no identifier; inspect the router before retrying")
         peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name, public_key=public_key, private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, endpoint=body.endpoint, status="active")
         db.add(peer)
         db.flush()
@@ -120,7 +120,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         if isinstance(exc, HTTPException):
             raise
         if isinstance(exc, RouterConnectionError):
-            raise HTTPException(502, "RouterOS peer creation failed; no local peer was committed") from exc
+            raise HTTPException(502, "RouterOS peer creation did not complete cleanly; a timed-out write may have applied, so inspect the router before retrying") from exc
         raise HTTPException(500, "Peer creation failed and the router rollback was attempted") from exc
 
 @router.delete("/{peer_id}", status_code=200)
@@ -144,7 +144,6 @@ async def revoke_peer(router_id: int, peer_id: int, confirm: bool = False, db: S
         record_event(db, user.username, "peer.revoke", "peer", str(peer.id), outcome="failed", details={"reason": "router_disable_failed"})
         db.commit()
         raise HTTPException(502, "RouterOS did not confirm peer disable; local state was not changed") from exc
-    old_key = peer.private_key_ciphertext
     peer.status = "revoked"
     peer.private_key_ciphertext = None
     record_event(db, user.username, "peer.revoke", "peer", str(peer.id), details={"router_id": router_id, "router_peer_id": peer.router_peer_id, "router_action": "disable"})

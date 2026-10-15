@@ -24,3 +24,15 @@ def test_generated_wireguard_keypair_is_valid_base64_and_distinct():
     assert len(base64.b64decode(private, validate=True)) == 32
     assert len(base64.b64decode(public, validate=True)) == 32
     assert private != public
+
+def test_client_config_inputs_validate_server_key_and_endpoint():
+    import base64
+    from pydantic import ValidationError
+    from wireguard_manager_api.schemas import ClientConfigRequest
+    key = base64.b64encode(b"x" * 32).decode()
+    request = ClientConfigRequest(server_public_key=key, endpoint="vpn.example.com:51820")
+    assert request.endpoint == "vpn.example.com:51820"
+    with pytest.raises(ValidationError):
+        ClientConfigRequest(server_public_key="not-a-wireguard-key", endpoint="vpn.example.com:51820")
+    with pytest.raises(ValidationError):
+        ClientConfigRequest(server_public_key=key, endpoint="vpn.example.com:99999")

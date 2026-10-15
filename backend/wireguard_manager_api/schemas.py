@@ -52,3 +52,6 @@ class UserView(BaseModel):
     username: str
     role: str
     is_active: bool
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=40, max_length=256)

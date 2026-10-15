@@ -1,41 +1,35 @@
 # Changelog
 
-All notable changes to this project are documented here. The project follows Semantic Versioning (SemVer):
+Notable changes to WireGuard Manager are recorded here. The backend has not yet published a stable production release; entries describe repository capabilities and limitations, not a production-readiness claim.
 
-- **MAJOR** for incompatible API or configuration changes
-- **MINOR** for backward-compatible features
-- **PATCH** for backward-compatible bug fixes and security fixes
+## Unreleased
 
-## [Unreleased]
+### Backend and API
+- Added a FastAPI service with versioned routes, health/readiness checks, JWT authentication, rotating/revocable refresh tokens, Argon2 password hashing, and admin/operator/viewer authorization.
+- Added one-time administrator bootstrap and admin user provisioning.
+- Added SQLAlchemy models and Alembic migrations for users, RouterOS routers, Linux servers, peers, refresh sessions, and audit events.
+- Added Fernet encryption for stored RouterOS credentials, Linux SSH private keys, and peer private-key material.
+- Added RouterOS registration, TLS-verified REST connectivity checks, read-only WireGuard discovery, point-in-time traffic counters, and bounded diagnostics.
+- Added guarded RouterOS peer preview/create/revoke flows with IP/interface validation, local and remote overlap checks, explicit confirmation, mutation gates, and compensating rollback attempts.
+- Added Linux server onboarding over SSH with pinned SHA256 host-key fingerprints, IP-literal host validation, OS/kernel/package-manager detection, and distribution-family install plans for apt-get, dnf/yum, zypper, and apk.
+- Added Linux WireGuard interface/peer discovery, current handshake/RX/TX counters, guarded peer create/revoke, and package installation behind a default-off mutation gate.
+- Added audited WireGuard client configuration and QR image delivery with no-store response headers.
+- Added hash-linked audit events and an admin-only audit-chain verification endpoint.
+- Added backend tests to the CI workflow alongside frontend build and Alembic migration validation.
 
-### Linux server support
-- Added a Linux server inventory model and Alembic migrations for Linux servers and their WireGuard peers.
-- Added SSH onboarding with encrypted private-key storage and SHA256 host-key pinning, plus OS/kernel/package-manager and WireGuard tool detection.
-- Added explicit install preview and confirmation for apt, dnf/yum, zypper and apk package managers.
-- Added Linux interface/peer discovery and point-in-time counters, guarded peer create/revoke with `wg-quick save` and rollback attempts, and audited client config/QR delivery.
-- Added a Linux Servers frontend demo section describing onboarding and supported distribution families. It is illustrative only; live UI/API integration is still pending.
-- Added unit tests for Linux host validation and distribution-specific package plans.
+### Frontend
+- Added a responsive React/TypeScript/Vite dashboard prototype with Overview, Routers, Users & devices, Traffic, Diagnostics, Audit log, Settings, and illustrative Linux Servers views.
+- Added synthetic seed data, demo-only interactions, local browser persistence, CSV/JSON exports where offered by the UI, SVG preview illustrations, and GitHub Pages deployment workflow.
+- Clarified that the frontend is not yet integrated with the backend and all frontend operational data is illustrative.
 
-
-### Added
-- Initial FastAPI backend package and versioned API namespace.
-- JWT access authentication, Argon2 password hashing, and admin/operator/viewer role checks.
-- Environment-based secret configuration and Fernet encryption for router credentials and stored peer private keys.
-- Router onboarding, TLS-verified RouterOS REST connection tests, and read-only WireGuard peer discovery endpoints.
-- IP/interface validation and a dry-run preview endpoint for proposed peer creation.
-- Hash-linked audit events and an administrator audit-chain verification endpoint.
-- Backend health, authentication, and address-validation tests in CI.
-
-### Security / limitations
-- Peer create/revoke now has an implementation behind `WGM_ENABLE_PEER_MUTATIONS=false` by default: preview checks local/router-side overlaps, creation uses explicit confirmation and compensating deletion, and revocation disables the peer with a re-enable rollback attempt. Keep the flag off until RouterOS-version-specific integration tests pass; timeout-after-write ambiguity and real-device rollback still need verification.
-- Refresh-session lifecycle, rate limiting, external secret-manager integration, and immutable off-host audit retention remain required before production use.
-- Added a checked-in Alembic environment and versioned schema migrations; application startup no longer silently creates or mutates the database schema.
-- Added gated RouterOS peer create/revoke operations with interface selection, remote address-overlap checks, encrypted private-key persistence, and compensating rollback attempts.
-- Added audited client `.conf` and QR PNG delivery endpoints with strict input validation and no-store response headers; generated configuration and QR contents are never written to the audit log.
-- Added opaque, hashed refresh tokens with rotation, expiration, replay rejection, and logout revocation.
-- Current audit hash chain detects edits only while its trust anchor is protected; a database administrator able to rewrite all rows can recompute the chain.
-- Automatic schema creation is for development only; production deployment must apply reviewed Alembic migrations.
+### Security and known limitations
+- RouterOS peer mutations are disabled by default with WGM_ENABLE_PEER_MUTATIONS=false; Linux installation and peer mutations are disabled by default with WGM_ENABLE_LINUX_MUTATIONS=false.
+- Public RouterOS and Linux host targets are disabled by default. Linux SSH registration requires an independently verified SHA256 host-key fingerprint and uses IP-literal targets.
+- Remote mutation rollback is best-effort. Timeouts, database failures, and remote state mismatches can require manual reconciliation.
+- Hash-linked audit records are not immutable against an actor able to rewrite the database and recompute the chain.
+- Rate limiting, external secret-manager integration, off-host tamper-resistant audit retention, historical monitoring, production deployment hardening, real-device integration tests, and frontend/API integration remain outstanding.
+- The Linux performance optimizer is not listed as a shipped capability unless its implementation is merged to main and its behavior is validated and documented.
 
 ## Version history
 
-No stable release has been published from this backend branch yet. Do not treat the frontend demo's existing version as a production backend release.
+No stable production backend release has been published.

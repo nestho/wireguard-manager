@@ -1,252 +1,321 @@
 # WireGuard Manager
 
-A dark, responsive **frontend demo for organizing WireGuard routers, peers, device inventory, traffic, diagnostics, and administrative audit events**. Built with React, TypeScript, and Vite.
+**WireGuard Manager** is an early-stage, self-hosted management API and frontend prototype for WireGuard deployments on **MikroTik RouterOS** and **Linux servers**.
 
-> [!WARNING]
-> **Demo only — not connected to real routers.** All router health, peer status, resource values, traffic, diagnostics, and audit events are illustrative. This project does not connect to MikroTik RouterOS, execute SSH/API commands, create or revoke real peers, or generate WireGuard keys/configurations. Do not use the displayed values as live monitoring data.
+> [!IMPORTANT]
+> **Development status — not production-ready.** The FastAPI backend contains real inventory, discovery, diagnostics, and guarded mutation endpoints. The React dashboard is still a standalone demo and is **not connected to the backend**. Live write operations are disabled by default. Passing CI/unit tests does not replace integration tests against your actual RouterOS versions, Linux distributions, SSH/sudo policy, and deployment environment.
 
 <p align="center">
-  <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the live demo →</strong></a>
+  <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the frontend demo →</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://github.com/nestho/wireguard-manager/actions/workflows/ci.yml"><strong>Build & deployment workflow</strong></a>
+  <a href="https://github.com/nestho/wireguard-manager/actions/workflows/ci.yml"><strong>CI workflow</strong></a>
+  &nbsp; · &nbsp;
+  <a href="https://github.com/nestho/wireguard-manager/blob/main/backend/README.md"><strong>Backend setup</strong></a>
 </p>
 
-## Screenshots
+## Table of contents
 
-The screenshots below are **illustrative SVG mockups** of the current interface and its separate views. They contain synthetic data, not live application telemetry.
+- [What is implemented](#what-is-implemented)
+- [Architecture](#architecture)
+- [Frontend demo](#frontend-demo)
+- [Backend capabilities](#backend-capabilities)
+- [API overview](#api-overview)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Security and operational guardrails](#security-and-operational-guardrails)
+- [Testing and CI](#testing-and-ci)
+- [Repository layout](#repository-layout)
+- [Known limitations and roadmap](#known-limitations-and-roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Overview dashboard
+## What is implemented
+
+| Area | Status | Notes |
+|---|---|---|
+| React dashboard | Demo only | Responsive pages, synthetic data, local browser persistence; not connected to the API |
+| Authentication | Implemented in API | JWT access tokens, rotating/revocable refresh tokens, Argon2 password hashing |
+| Authorization | Implemented in API | Admin, operator, and viewer roles |
+| Database | Implemented | SQLAlchemy models and Alembic migrations; schema is not auto-mutated at app startup |
+| Secret storage | Implemented | Fernet-encrypted router credentials, Linux SSH private keys, and stored peer private-key material |
+| MikroTik RouterOS | Early integration | Registration, TLS-verified connectivity checks, read-only WireGuard discovery, point-in-time counters, diagnostics |
+| Linux WireGuard servers | Early integration | SSH onboarding with pinned host-key fingerprints, host inspection, distro/package-manager detection, install preview, interface/peer discovery, counters |
+| Peer lifecycle | Implemented behind safety gates | Address validation, dry-run preview, explicit confirmation, guarded create/revoke, compensating rollback attempts |
+| Client configuration / QR | Implemented in API | Audited config and QR delivery; outputs contain private key material and must be handled as secrets |
+| Audit trail | Implemented | Hash-linked audit events and admin chain verification; not tamper-proof against an administrator who can rewrite the database |
+| Traffic history | Not implemented | API returns point-in-time counters, not historical time series |
+| Linux performance optimizer | Not included in current main | Do not treat work in an unmerged PR as a shipped feature |
+
+## Architecture
+
+~~~text
+Browser
+  └── React + TypeScript + Vite frontend
+      └── Static demo data and browser-local state only
+          (no API calls to the backend yet)
+
+FastAPI backend
+  ├── JWT authentication and role checks
+  ├── SQLAlchemy + Alembic persistence
+  ├── RouterOS provider ── HTTPS / RouterOS REST API
+  ├── Linux provider ───── SSH with pinned host-key fingerprint
+  └── Audit events ─────── hash-linked database records
+~~~
+
+The frontend and API are separate deliverables today. The demo's routers, peers, traffic charts, diagnostics, and audit events are illustrative; they do not represent the database or live infrastructure. API operations must be invoked directly through the API or another client until frontend-to-API integration is implemented.
+
+## Frontend demo
+
+The live static dashboard includes these illustrative views:
+
+| View | Route | Purpose |
+|---|---|---|
+| Overview | [#/overview](https://nestho.github.io/wireguard-manager/#/overview) | Summary metrics, sample router health, traffic and recent peers |
+| Routers | [#/routers](https://nestho.github.io/wireguard-manager/#/routers) | Synthetic router inventory and resource examples |
+| Users & devices | [#/users-and-devices](https://nestho.github.io/wireguard-manager/#/users-and-devices) | Search/filter sample peers, addresses, device status and traffic |
+| Traffic | [#/traffic](https://nestho.github.io/wireguard-manager/#/traffic) | Illustrative charts and sample usage breakdown |
+| Diagnostics | [#/diagnostics](https://nestho.github.io/wireguard-manager/#/diagnostics) | Checks against demo data only |
+| Audit log | [#/audit-log](https://nestho.github.io/wireguard-manager/#/audit-log) | Local demo events |
+| Settings | [#/settings](https://nestho.github.io/wireguard-manager/#/settings) | Demo preferences, export and reset controls |
+| Linux Servers | [#/linux-servers](https://nestho.github.io/wireguard-manager/#/linux-servers) | Illustrative onboarding information only; no live SSH operations |
+
+### Screenshots
+
+These are illustrative SVG mockups, not live monitoring data.
+
+**Overview**
 
 ![WireGuard Manager overview dashboard](docs/dashboard-preview.svg)
 
-### Router inventory
+**Router inventory**
 
-![Router inventory preview with status, CPU, memory and interface details](docs/routers-preview.svg)
+![Router inventory preview](docs/routers-preview.svg)
 
-### Users and devices
+**Users and devices**
 
-![Users and devices preview with peer inventory, status, router and traffic](docs/devices-preview.svg)
+![Users and devices preview](docs/devices-preview.svg)
 
-### Traffic, diagnostics, audit log and settings
+**Operations views**
 
-![Operations pages preview showing traffic analytics, diagnostics checks, audit events and workspace settings](docs/operations-preview.svg)
+![Traffic, diagnostics, audit log and settings previews](docs/operations-preview.svg)
 
-## Demo pages
+Demo changes are kept in the current browser's local storage. Resetting browser storage or using another browser/device may restore the seed data. Never treat the demo as an authoritative inventory.
 
-Every sidebar section has its own view and hash route. You can open a section directly, refresh it, or use the browser's Back/Forward navigation.
+## Backend capabilities
 
-| Section | Route | What's inside |
+The API is built with FastAPI and supports these early-stage workflows.
+
+### Authentication and persistence
+- One-time administrator bootstrap when configured and when no users exist.
+- Login, access-token issuance, refresh-token rotation, and logout revocation.
+- Argon2 password hashing and admin/operator/viewer role checks.
+- SQLAlchemy persistence and reviewed Alembic schema migrations.
+- Fernet encryption for stored router credentials, Linux SSH private keys, and peer private keys.
+
+### MikroTik RouterOS
+- Register routers and test connectivity through HTTPS with TLS verification.
+- Read WireGuard interfaces and peers.
+- Read current peer RX/TX counters and handshake data where exposed by RouterOS.
+- Run bounded, read-only diagnostics.
+- Preview proposed peer creation with address/interface validation and local plus router-side overlap checks.
+- Create/revoke peers only when the mutation gate is explicitly enabled; operations require explicit confirmation and include compensating rollback attempts.
+- Generate audited client configuration and QR images. The QR encodes the full client configuration, including the private key.
+
+### Linux WireGuard servers
+- Register servers using SSH public-key authentication and an independently verified SHA256 host-key fingerprint.
+- Require an IP literal for the target host; DNS hostnames are rejected to reduce DNS-rebinding/SSRF risk.
+- Inspect OS release, kernel, package manager, and WireGuard tool availability.
+- Generate installation previews for supported package-manager families:
+  - Debian/Ubuntu family — apt-get
+  - Fedora/RHEL family — dnf or yum
+  - openSUSE/SLES — zypper
+  - Alpine — apk
+- Discover active interfaces and remote peers; retrieve point-in-time counters.
+- Preview peer creation with address overlap checks and require an active interface plus a /etc/wireguard/<interface>.conf file for persistent changes.
+- Gate package installation and peer create/revoke behind WGM_ENABLE_LINUX_MUTATIONS=false by default.
+- Deliver audited client configuration and QR outputs with no-store response headers.
+
+### Audit trail
+- Record security-relevant actions without placing credentials/private keys in event details.
+- Link audit events with hashes and provide an admin-only chain verification endpoint.
+- This is **not immutable storage**: an actor able to rewrite the database and all records may be able to recompute the chain. Use off-host retention before relying on it for incident response.
+
+## API overview
+
+Run the API and open Swagger UI at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The OpenAPI page reflects the running version and is the source of truth for request/response schemas.
+
+| Method | Endpoint | Purpose / access |
 |---|---|---|
-| **Overview** | [Open Overview](https://nestho.github.io/wireguard-manager/#/overview) | Summary metrics, router health, traffic overview, recent peers, and demo-mode notice |
-| **Routers** | [Open Routers](https://nestho.github.io/wireguard-manager/#/routers) | Router cards, RouterOS version, interface, location, health status, CPU/memory utilization, uptime, and last-check examples |
-| **Users & devices** | [Open Users & devices](https://nestho.github.io/wireguard-manager/#/users-and-devices) | Searchable peer inventory, owner/device details, assigned sample address, router, connection state, last-seen value, and RX/TX usage |
-| **Traffic** | [Open Traffic](https://nestho.github.io/wireguard-manager/#/traffic) | Illustrative traffic charts, time-period selector, total transfer, and per-device usage breakdown |
-| **Diagnostics** | [Open Diagnostics](https://nestho.github.io/wireguard-manager/#/diagnostics) | Run local demo checks for inventory, interface health, duplicate sample addresses, stale handshakes, and resource thresholds |
-| **Audit log** | [Open Audit log](https://nestho.github.io/wireguard-manager/#/audit-log) | Searchable sample events and UI actions recorded during the demo session |
-| **Settings** | [Open Settings](https://nestho.github.io/wireguard-manager/#/settings) | Interface preferences, demo data backup/export and reset controls, plus a reminder that no live router is connected |
+| GET | /healthz | Liveness check |
+| GET | /api/v1/health | API readiness and provider summary |
+| POST | /api/v1/admin/bootstrap | One-time initial admin bootstrap |
+| POST | /api/v1/auth/login | Authenticate and issue tokens |
+| POST | /api/v1/auth/refresh | Rotate refresh token |
+| POST | /api/v1/auth/logout | Revoke presented refresh token |
+| GET | /api/v1/auth/me | Current authenticated user |
+| POST | /api/v1/auth/users | Admin user provisioning |
+| GET / POST | /api/v1/routers | List/register RouterOS devices |
+| POST | /api/v1/routers/{id}/test | Test RouterOS connectivity |
+| GET | /api/v1/routers/{id}/wireguard/peers | Read RouterOS WireGuard interfaces/peers |
+| GET | /api/v1/routers/{id}/traffic | Current peer counters; no history |
+| GET | /api/v1/routers/{id}/diagnostics | Bounded read-only diagnostics |
+| POST | /api/v1/routers/{id}/peers/preview | Validate and preview peer creation |
+| POST | /api/v1/routers/{id}/peers | Guarded peer creation; disabled by default |
+| DELETE | /api/v1/routers/{id}/peers/{peer_id}?confirm=true | Guarded peer revocation; disabled by default |
+| POST | /api/v1/routers/{id}/peers/{peer_id}/config | Download generated client config; sensitive |
+| POST | /api/v1/routers/{id}/peers/{peer_id}/qr | Download QR PNG; sensitive |
+| GET / POST | /api/v1/linux-servers | List/register Linux servers |
+| POST | /api/v1/linux-servers/{id}/inspect | Read-only host inspection and install-plan detection |
+| POST | /api/v1/linux-servers/{id}/install/preview | Preview supported package installation |
+| POST | /api/v1/linux-servers/{id}/install | Guarded WireGuard package installation |
+| GET | /api/v1/linux-servers/{id}/peers | List peers tracked in the local database |
+| GET | /api/v1/linux-servers/{id}/peers/remote | Discover active remote interfaces/peers and counters |
+| POST | /api/v1/linux-servers/{id}/peers/preview | Validate and preview Linux peer creation |
+| POST | /api/v1/linux-servers/{id}/peers | Guarded Linux peer creation |
+| DELETE | /api/v1/linux-servers/{id}/peers/{peer_id}?confirm=true | Guarded Linux peer revocation |
+| POST | /api/v1/linux-servers/{id}/peers/{peer_id}/config | Download generated Linux client config; sensitive |
+| POST | /api/v1/linux-servers/{id}/peers/{peer_id}/qr | Download Linux client QR PNG; sensitive |
+| GET | /api/v1/admin/audit/verify | Admin verifies audit hash chain |
 
-## Current demo capabilities
+Most routes require a Bearer access token; role requirements and body fields are shown in Swagger UI. Mutation endpoints must not be assumed safe merely because they are present.
 
-- **Seven navigable views** with individual content, headings, and hash routes.
-- **Sample inventory:** 12 routers and 78 synthetic device/peer records.
-- **Router inventory:** sample locations, interface names, RouterOS versions, health, uptime, CPU, and memory.
-- **Peer/device inventory:** search and filters, router association, sample address, status, platform, last-seen, and illustrative RX/TX counters.
-- **Demo interactions:** add/edit sample records, toggle a sample device's state, remove demo entries, inspect router/device details, and receive UI notifications.
-- **Traffic view:** visual usage summaries and per-device breakdowns derived from the sample dataset.
-- **Diagnostics:** simulated checks that report results based on local demo data; they do not probe a router or network.
-- **Audit view:** demo actions can add entries to the local audit list.
-- **Data portability:** CSV exports for inventory/audit data and a JSON demo-data backup, where offered by the UI.
-- **Preferences and local persistence:** supported demo changes and selected interface preferences are stored in the current browser's local storage.
-- **Responsive layout:** desktop sidebar and mobile navigation.
-- **GitHub Pages deployment:** GitHub Actions type-checks/builds the frontend and deploys the static site on pushes to `main`.
-
-## Try the demo
-
-1. Open the [live demo](https://nestho.github.io/wireguard-manager/).
-2. Select **Routers**, **Users & devices**, **Traffic**, **Diagnostics**, **Audit log**, or **Settings** from the sidebar.
-3. Use search/filter controls in the inventory and audit views.
-4. Open a router/device detail or use the available sample-record actions.
-5. Export the displayed sample data if you need to inspect the formats.
-6. Use **Settings** to explore demo preferences and reset options.
-
-Because this is a static frontend demo, changes are local to your browser. Resetting browser storage or opening another browser/device may restore the initial seed data.
-
-## Run locally
+## Quick start
 
 ### Requirements
+- Node.js 20+ and npm for the frontend.
+- Python 3.11+ for the backend.
+- A supported SQLAlchemy database. SQLite is the local-development default.
+- For live RouterOS access: network reachability, a dedicated RouterOS account, and a valid HTTPS certificate.
+- For Linux access: network reachability, an SSH user/key, a verified SHA256 host-key fingerprint, and narrowly scoped non-interactive sudo -n permissions for the required commands.
 
-- Node.js 20 or newer
-- npm
+### Start the frontend demo
 
-### Install and start
-
-```bash
+~~~bash
 git clone https://github.com/nestho/wireguard-manager.git
 cd wireguard-manager
 npm install
 npm run dev
-```
+~~~
 
-Vite prints the local development URL, usually `http://localhost:5173`.
+Vite prints the development URL, usually http://localhost:5173. The demo does not call the API.
 
-### Production build
+### Start the backend API
 
-```bash
-npm run build
-npm run preview
-```
+From the repository root:
 
-The build runs TypeScript project checks before creating the Vite production bundle.
-
-## Project layout
-
-```text
-wireguard-manager/
-├── .github/workflows/ci.yml    # CI build and GitHub Pages deployment
-├── demo/seed-data.json         # Synthetic example fixture
-├── docs/
-│   ├── dashboard-preview.svg   # Overview screenshot illustration
-│   ├── routers-preview.svg     # Router inventory illustration
-│   ├── devices-preview.svg     # Users/devices illustration
-│   └── operations-preview.svg  # Traffic, diagnostics, audit and settings
-├── src/
-│   ├── App.tsx                 # Demo views, sample state, and interactions
-│   ├── main.tsx                # React entry point
-│   └── styles.css              # Responsive dashboard styling
-├── index.html
-├── package.json
-└── vite.config.ts
-```
-
-The app currently defines its main demo seed objects in `src/App.tsx`; `demo/seed-data.json` is a separate starter fixture and is not yet the runtime source of truth.
-
-## Current limitations and next milestones
-
-This is a UI prototype, **not yet a RouterOS management product**.
-
-- [ ] Secure backend/API for RouterOS connectivity (SSH or RouterOS API)
-- [ ] Authentication, session handling, and role-based authorization
-- [ ] Router onboarding and connection testing with safe, read-only defaults
-- [ ] Real peer discovery and synchronization
-- [ ] Peer creation/revocation with address validation, dry-run preview, explicit confirmation, and rollback
-- [ ] Safe private-key/configuration handling and client config/QR generation
-- [ ] Server-side persistence, migrations, and reliable backup/restore
-- [ ] Live metrics and traffic collection with timestamps and source status
-- [ ] Audit trail persisted server-side and protected against tampering
-- [ ] Automated unit, integration, accessibility, and end-to-end tests
-- [ ] Release packaging and deployment documentation
-
-## Security principles for future live integration
-
-- Never put router passwords, SSH private keys, WireGuard private keys, client configurations, or QR codes in frontend code, screenshots, issues, logs, or demo fixtures.
-- Keep demo data clearly separated from real router inventory.
-- Use authenticated backend requests; do not connect the browser directly to routers or expose secrets to client-side JavaScript.
-- Default to read-only discovery. Show a clear preview before any live mutation.
-- Require explicit confirmation for peer creation, revocation, or configuration changes.
-- Validate peer addresses and prevent duplicate assignments before applying changes.
-- Back up relevant router configuration before writes and document recovery/rollback behavior.
-- Treat router responses and imported inventory as untrusted input.
-- Label timestamps, stale data, connection failures, and demo/synthetic values unambiguously.
-
-## Contributing
-
-Issues and pull requests are welcome. For bug reports, include steps to reproduce and redacted logs where useful. **Never attach production configuration exports, credentials, private keys, client configs, or QR codes.** Use synthetic examples.
-
-## License
-
-Distributed under the MIT License. See [LICENSE](LICENSE).
-
-
-## Backend API (early development)
-
-The repository now includes a separate FastAPI service under `backend/`. The frontend demo remains illustrative and is not yet wired to this API.
-
-### Implemented API foundation
-
-- JWT access-token login and a `/me` endpoint.
-- Argon2 password hashing and admin/operator/viewer authorization checks.
-- Admin-only user provisioning and one-time environment-configured bootstrap endpoint.
-- SQLAlchemy persistence models for users, routers, peers, and audit events.
-- Encrypted-at-rest router credentials and peer private-key field using a Fernet key supplied outside the repository.
-- RouterOS registration, HTTPS/TLS-verified connection testing, and read-only discovery of WireGuard interfaces/peers.
-- Linux server registration over SSH with a pinned SHA256 host-key fingerprint, encrypted SSH private key storage, distribution/kernel/package-manager detection, and distribution-specific WireGuard install plans for Debian/Ubuntu, Fedora/RHEL-family, openSUSE/SLES, and Alpine.
-- Linux WireGuard interface/peer discovery, point-in-time counters, guarded peer creation/revocation with persistent `wg-quick save` and compensating rollback attempts, plus audited client config/QR generation.
-- Private-address-first router host policy; public hosts are blocked unless explicitly enabled in deployment configuration.
-- IP-prefix validation and dry-run peer creation preview.
-- Hash-linked audit events and admin audit-chain verification endpoint.
-- CI runs backend unit/API tests in addition to the frontend build.
-
-### API endpoints
-
-| Method | Endpoint | Access / behavior |
-|---|---|---|
-| GET | `/healthz` | Liveness |
-| GET | `/api/v1/health` | API readiness |
-| POST | `/api/v1/admin/bootstrap` | One-time bootstrap, only when configured and no users exist |
-| POST | `/api/v1/auth/login` | Obtain access and refresh tokens |
-| POST | `/api/v1/auth/refresh` | Rotate refresh token and issue a new access token |
-| POST | `/api/v1/auth/logout` | Revoke the presented refresh token |
-| GET | `/api/v1/auth/me` | Current authenticated user |
-| POST | `/api/v1/auth/users` | Admin creates a user and assigns a role |
-| GET / POST | `/api/v1/routers` | Authenticated inventory / operator-or-admin registration |
-| POST | `/api/v1/routers/{id}/test` | Operator-or-admin HTTPS connection test |
-| GET | `/api/v1/routers/{id}/wireguard/peers` | Authenticated read-only peer/interface discovery |
-| POST | `/api/v1/routers/{id}/peers/preview` | Validate and preview a proposed peer |
-| POST | `/api/v1/routers/{id}/peers` | Create peer with explicit confirmation; returns 503 unless `WGM_ENABLE_PEER_MUTATIONS=true` |
-| POST | `/api/v1/routers/{id}/peers/{peer_id}/config` | Audited WireGuard client config download; private key is sensitive and response is no-store |
-| POST | `/api/v1/routers/{id}/peers/{peer_id}/qr` | Audited QR image download; QR contains the full private client configuration |
-| DELETE | `/api/v1/routers/{id}/peers/{peer_id}?confirm=true` | Disable/revoke peer with explicit confirmation; gated by `WGM_ENABLE_PEER_MUTATIONS` |
-| GET | `/api/v1/admin/audit/verify` | Admin verifies the audit hash chain |
-
-### Run the backend locally
-
-Requires Python 3.11 or newer.
-
-```bash
+~~~bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp backend/.env.example .env
-```
+~~~
 
-Generate and configure both secrets before running the service. Do not commit the resulting values:
+Generate two independent secrets and set them in the protected .env file:
 
-```bash
+~~~bash
 python -c 'import secrets; print(secrets.token_urlsafe(48))'
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-```
+~~~
 
-Set the first output as `WGM_JWT_SECRET` and the second as `WGM_ENCRYPTION_KEY` in the protected environment. Configure bootstrap username/password only for initial setup, start the API, then remove bootstrap credentials from the environment after creating the admin.
+Set the first value as WGM_JWT_SECRET and the second as WGM_ENCRYPTION_KEY. Configure bootstrap credentials only for initial setup. Then run:
 
-```bash
+~~~bash
 alembic upgrade head
 uvicorn wireguard_manager_api.main:app --reload --app-dir backend
+~~~
+
+The API is available at http://127.0.0.1:8000; interactive docs are at /docs. Run the tests with:
+
+~~~bash
 python -m pytest backend/tests
-```
+~~~
 
-Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedicated RouterOS account with minimal permissions and a valid HTTPS certificate. Never disable TLS verification to bypass certificate errors.
+See [backend/README.md](backend/README.md) for full setup and safety notes. Do not commit secrets, production configuration, client configs, QR images, or private keys.
 
-### Current backend limitations
+## Configuration
 
-This is **not yet a production-ready RouterOS management product**. Peer mutations are implemented behind the default-off `WGM_ENABLE_PEER_MUTATIONS` gate. Creation checks interface existence and overlapping router-side/local addresses, and attempts compensating deletion if local persistence fails. Revocation disables rather than deletes the RouterOS peer so a re-enable rollback can be attempted. Keep the gate off until integration tests against the exact RouterOS versions and timeout-after-write reconciliation are complete; client configuration and QR delivery endpoints are implemented with explicit server key/endpoint inputs, audit metadata (no secrets), and no-store response headers. Access remains restricted to operators/admins; protect these endpoints and downloaded artifacts as private-key material. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet. Linux server operations require an independently verified SHA256 SSH host-key fingerprint and private-key authentication. Public SSH targets are blocked by default; use `WGM_ALLOW_PUBLIC_LINUX_HOSTS=true` only after reviewing egress controls. Package installation and Linux peer mutations remain disabled unless `WGM_ENABLE_LINUX_MUTATIONS=true` is explicitly set. The UI's Linux Servers section remains an illustrative demo and does not execute live SSH actions.
+All environment variables use the WGM_ prefix. Defaults are intentionally restrictive.
 
-See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.
+| Variable | Purpose | Default / guidance |
+|---|---|---|
+| WGM_DATABASE_URL | SQLAlchemy database URL | sqlite:///./wireguard-manager.db for local development |
+| WGM_JWT_SECRET | Signs access tokens | Required for real use; generate a high-entropy secret (32+ characters) |
+| WGM_ENCRYPTION_KEY | Fernet key for stored secrets | Required; generate with Fernet.generate_key(); back it up securely and separately |
+| WGM_ACCESS_TOKEN_MINUTES | Access-token lifetime | 15 |
+| WGM_BOOTSTRAP_ADMIN_USERNAME | Initial admin account name | Empty; configure only for one-time bootstrap |
+| WGM_BOOTSTRAP_ADMIN_PASSWORD | Initial admin password | Empty; remove from environment after bootstrap |
+| WGM_ALLOWED_ORIGINS | Allowed browser origins | http://localhost:5173; frontend integration is not yet implemented |
+| WGM_ALLOW_PUBLIC_ROUTER_HOSTS | Allow public RouterOS host IPs | false; keep false unless egress controls are reviewed |
+| WGM_ALLOW_PUBLIC_LINUX_HOSTS | Allow public Linux SSH target IPs | false; keep false unless egress controls are reviewed |
+| WGM_ENABLE_PEER_MUTATIONS | Enable RouterOS peer create/revoke | false; keep disabled until device-specific integration tests pass |
+| WGM_ENABLE_LINUX_MUTATIONS | Enable Linux package install and peer mutations | false; keep disabled until distro/sudo/rollback tests pass |
 
+Use a secret manager or protected environment for production secrets. Losing WGM_ENCRYPTION_KEY can make stored credentials and peer keys unrecoverable. Exposing it compromises those stored values.
 
-## Linux server support (backend)
+## Security and operational guardrails
 
-The API now includes a Linux server provider alongside RouterOS. It uses SSH public-key authentication and requires an independently verified SHA256 host-key fingerprint; SSH private keys are encrypted at rest. The backend detects /etc/os-release, kernel, package manager, and wg / wg-quick availability.
+- Keep the API on a private management network behind HTTPS termination and firewall rules. Do not expose it publicly without a deployment-specific review.
+- Use least-privilege RouterOS credentials and a dedicated Linux SSH account; avoid root SSH where restricted sudo is sufficient.
+- Keep RouterOS TLS verification enabled.
+- Verify Linux SSH host-key fingerprints independently before registration. Do not trust a fingerprint copied from an unverified connection.
+- Public RouterOS/Linux hosts and all live mutations are disabled by default.
+- Review preview output and require explicit confirmation before live writes.
+- Mutation flows attempt compensating rollback, but rollback is not guaranteed after a timeout, process failure, or remote/local state mismatch. Inspect the remote server before retrying an ambiguous operation.
+- Client configuration files and QR images contain private key material. Treat them like credentials; no-store response headers do not prevent client-side capture.
+- Audit hash linking detects some changes but is not a substitute for remote append-only logging.
+- Do not expose /docs or detailed errors publicly without an explicit operational decision.
+- Keep backups of the database and encryption key, and test restoration.
+- The API has no complete production hardening, external secret-manager integration, rate limiting, historical monitoring pipeline, or frontend integration yet.
 
-Supported automatic package-plan families: Debian/Ubuntu (apt-get), Fedora/RHEL-family (dnf or yum), openSUSE/SLES (zypper), and Alpine (apk). Other distributions are detected but do not receive an automatic install plan.
+## Testing and CI
 
-Linux API routes:
-- GET/POST /api/v1/linux-servers — inventory and admin-only registration
-- POST /api/v1/linux-servers/{id}/inspect — distribution and prerequisite inspection
-- POST /api/v1/linux-servers/{id}/install/preview — review the package plan
-- POST /api/v1/linux-servers/{id}/install — explicit-confirmation installation
-- GET /api/v1/linux-servers/{id}/peers/remote — live interface/peer discovery and point-in-time counters
-- POST /api/v1/linux-servers/{id}/peers/preview — peer address/interface preflight
-- POST /api/v1/linux-servers/{id}/peers and DELETE /api/v1/linux-servers/{id}/peers/{peer_id}?confirm=true — guarded peer lifecycle
-- POST /api/v1/linux-servers/{id}/peers/{peer_id}/config and /qr — audited client configuration delivery
+The GitHub Actions workflow on pushes and pull requests to main:
+1. Installs frontend dependencies and runs the TypeScript/Vite production build.
+2. Installs backend dependencies with development extras.
+3. Applies and validates Alembic migrations.
+4. Runs python -m pytest backend/tests.
+5. Builds the GitHub Pages artifact; deploys the static frontend on pushes to main.
 
-Security defaults: public SSH targets are blocked unless WGM_ALLOW_PUBLIC_LINUX_HOSTS=true; package installation and Linux peer mutations remain disabled unless WGM_ENABLE_LINUX_MUTATIONS=true. Only enable these after testing host-key pinning, least-privilege sudo -n rules, package-manager behavior, persistence, and rollback on the exact distributions in use. The frontend Linux Servers page is still a synthetic workflow preview, not a live client for these API endpoints.
+CI passing means the automated build/tests succeeded; it does **not** prove compatibility or safe rollback on physical routers or production Linux hosts. Run integration tests in an isolated lab before enabling mutations.
+
+## Repository layout
+
+~~~text
+wireguard-manager/
+├── .github/workflows/ci.yml       # Frontend build, migration check, backend tests, Pages deploy
+├── backend/
+│   ├── wireguard_manager_api/     # FastAPI routes, auth, providers, models and security
+│   ├── tests/                     # Backend/API tests
+│   ├── alembic/                   # Versioned database migrations
+│   ├── .env.example               # Safe local-development template
+│   └── README.md                  # Backend setup, API details and operational caveats
+├── docs/                          # Dashboard preview illustrations
+├── demo/seed-data.json            # Synthetic fixture
+├── src/                           # React/TypeScript demo frontend
+├── alembic.ini                    # Alembic configuration
+├── pyproject.toml                 # Python project/dependency configuration
+├── package.json                   # Frontend scripts/dependencies
+├── CHANGELOG.md                   # Change history
+├── SECURITY.md                    # Security reporting and deployment guardrails
+└── LICENSE                        # MIT license
+~~~
+
+## Known limitations and roadmap
+
+- [ ] Connect the frontend to the authenticated API and replace mock state with explicit live/demo modes.
+- [ ] Add frontend authentication/session handling and role-aware UI.
+- [ ] Add integration tests against supported RouterOS versions and Linux distribution/sudo combinations.
+- [ ] Add robust reconciliation for timeout-after-write and failed rollback scenarios.
+- [ ] Add rate limiting, production deployment templates, secret-manager integration, and hardening guidance.
+- [ ] Add off-host append-only audit retention and an operational alerting/metrics pipeline.
+- [ ] Add historical traffic collection; current API counters are point-in-time snapshots.
+- [ ] Add end-to-end and accessibility testing.
+- [ ] Complete review/benchmarking of any future Linux performance-optimization feature before describing it as supported.
+
+## Contributing
+
+Issues and pull requests are welcome. Include minimal reproduction steps and sanitized logs. Never publish production router exports, credentials, SSH/WireGuard private keys, client configuration files, QR codes, or real secret values. Use synthetic fixtures.
+
+## License
+
+Distributed under the [MIT License](LICENSE).

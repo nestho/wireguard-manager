@@ -1,33 +1,100 @@
 # WireGuard Manager API
 
-FastAPI backend for authenticated multi-platform WireGuard inventory and controlled RouterOS/Linux server management. The frontend is still a separate demo and is not connected to this API.
+FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The frontend remains a separate demo and is **not connected** to this API.
 
-## Run locally
+> [!WARNING]
+> This project is **not production-ready**. Live peer create/revoke and Linux install operations are disabled by default. Integration testing, deployment hardening, timeout reconciliation, rate limiting, off-host audit retention, and frontend integration remain outstanding.
 
-Requires Python 3.11+.
+## Contents
 
-```bash
+- [Requirements](#requirements)
+- [Local setup](#local-setup)
+- [Configuration](#configuration)
+- [Implemented features](#implemented-features)
+- [API routes](#api-routes)
+- [Role model](#role-model)
+- [Linux SSH and sudo requirements](#linux-ssh-and-sudo-requirements)
+- [Safe mutation workflow](#safe-mutation-workflow)
+- [Testing](#testing)
+- [Operational limitations](#operational-limitations)
+
+## Requirements
+
+- Python 3.11+
+- A SQLAlchemy-supported database; SQLite is the local default
+- For RouterOS: HTTPS reachability and a dedicated account permitted to read the required REST resources
+- For Linux: SSH reachability, public-key authentication, an independently verified SHA256 host-key fingerprint, and carefully scoped non-interactive sudo permissions for the specific commands used
+
+## Local setup
+
+Run these commands from the repository root:
+
+~~~bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp backend/.env.example .env
-# Set WGM_JWT_SECRET and WGM_ENCRYPTION_KEY to freshly generated secrets.
-alembic upgrade head
-uvicorn wireguard_manager_api.main:app --reload --app-dir backend
-```
+~~~
 
-Generate secrets with:
+Generate independent secrets:
 
-```bash
+~~~bash
 python -c 'import secrets; print(secrets.token_urlsafe(48))'
 python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
-```
+~~~
 
-Never commit the generated values. For production, inject secrets through a secret manager and use a database supported by SQLAlchemy. Apply reviewed migrations before deploying the new application version; startup intentionally does not create or alter tables.
+Set the generated values as WGM_JWT_SECRET and WGM_ENCRYPTION_KEY in the protected environment. Never commit them. Configure WGM_BOOTSTRAP_ADMIN_USERNAME and WGM_BOOTSTRAP_ADMIN_PASSWORD only for initial bootstrap; remove the bootstrap password from the environment after creating the admin account.
 
-Run tests with `python -m pytest backend/tests`. API documentation is available at `http://127.0.0.1:8000/docs`.
+~~~bash
+alembic upgrade head
+uvicorn wireguard_manager_api.main:app --reload --app-dir backend
+~~~
 
-## Implemented
+- API base URL: http://127.0.0.1:8000
+- OpenAPI / Swagger UI: http://127.0.0.1:8000/docs
+- Liveness: GET /healthz
+- Readiness: GET /api/v1/health
+
+The application deliberately does not create or mutate database schemas at startup. Apply reviewed Alembic migrations before deploying a new version.
+
+## Configuration
+
+See [backend/.env.example](.env.example). Main settings:
+
+| Variable | Description | Default |
+|---|---|---|
+| WGM_DATABASE_URL | SQLAlchemy database URL | sqlite:///./wireguard-manager.db |
+| WGM_JWT_SECRET | Access-token signing secret | Empty; configure a strong random secret |
+| WGM_ENCRYPTION_KEY | Fernet encryption key for stored credentials/keys | Empty; configure and back up securely |
+| WGM_ACCESS_TOKEN_MINUTES | Access-token lifetime | 15 |
+| WGM_BOOTSTRAP_ADMIN_USERNAME | One-time bootstrap username | Empty |
+| WGM_BOOTSTRAP_ADMIN_PASSWORD | One-time bootstrap password | Empty |
+| WGM_ALLOWED_ORIGINS | CORS origin allowlist | http://localhost:5173 |
+| WGM_ALLOW_PUBLIC_ROUTER_HOSTS | Permit public RouterOS target IPs | false |
+| WGM_ALLOW_PUBLIC_LINUX_HOSTS | Permit public Linux SSH target IPs | false |
+| WGM_ENABLE_PEER_MUTATIONS | Permit RouterOS peer create/revoke | false |
+| WGM_ENABLE_LINUX_MUTATIONS | Permit Linux install and peer create/revoke | false |
+
+These defaults are restrictive by design. Only change host/mutation settings after reviewing network egress controls, credentials, permissions, and rollback behavior.
+
+## Implemented features
+
+### Identity, authorization, and data protection
+- JWT access authentication and refresh-token rotation/revocation.
+- Argon2 password hashing.
+- Admin, operator, and viewer roles.
+- One-time admin bootstrap and admin user provisioning.
+- SQLAlchemy models with Alembic migrations.
+- Fernet encryption for stored RouterOS credentials, Linux SSH private keys, and peer private keys.
+- Hash-linked audit events and admin-only chain verification.
+
+### RouterOS provider
+- Register RouterOS targets and test REST connectivity over HTTPS with TLS verification.
+- Read WireGuard interfaces/peers and current traffic counters.
+- Run bounded read-only diagnostics.
+- Validate peer addresses and interface selection, and check local and remote address overlaps before writes.
+- Guard peer creation/revocation with WGM_ENABLE_PEER_MUTATIONS=false by default, explicit confirmation, and compensating rollback attempts.
+- Generate client config and QR PNG outputs with audit events and no-store response headers.
 
 - Versioned API, health checks, JWT access tokens, Argon2 password hashing, and admin/operator/viewer RBAC.
 - Admin-only initial bootstrap and user provisioning.
@@ -54,6 +121,14 @@ Linux API routes are documented at `/docs` under `linux-servers`, `linux-peers`,
 
 Inspect a server before requesting an install plan. Package installation is limited to recognized OS/package-manager combinations and runs via `sudo -n`; it requires explicit confirmation. Linux package installation, peer changes, and optimizer changes are disabled by default. Keep gates off until tests against exact distributions, sudo rules, WireGuard versions, and expected traffic loads are completed.
 
-## Important limitations
+Not production-ready. Current gaps include:
+- Frontend-to-API integration and frontend authentication/session handling.
+- Complete integration and failure-injection tests against real supported RouterOS/Linux versions.
+- Robust reconciliation for ambiguous timeout-after-write and rollback failure scenarios.
+- Rate limiting, production deployment manifests, and full deployment hardening.
+- External secret-manager support and tested key rotation/recovery procedures.
+- Tamper-resistant off-host audit retention.
+- Historical traffic/metrics storage, alerting, and monitoring.
+- End-to-end and accessibility tests.
 
-This is **not production-ready**. Remote mutation operations need integration tests and careful reconciliation after timeouts. Rate limiting, background metrics history, external secret management, off-host tamper-resistant audit retention, frontend-to-API integration, and production hardening remain outstanding. Do not expose this service to the public internet without a deployment-specific security review, TLS termination, firewalling, and operational backups.
+Do not expose this API directly to the public internet. Use a private management network, TLS termination, firewall rules, least-privilege device credentials, protected secrets, database/key backups, and a documented recovery process.

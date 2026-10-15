@@ -155,3 +155,77 @@ Issues and pull requests are welcome. For bug reports, include steps to reproduc
 ## License
 
 Distributed under the MIT License. See [LICENSE](LICENSE).
+
+
+## Backend API (early development)
+
+The repository now includes a separate FastAPI service under `backend/`. The frontend demo remains illustrative and is not yet wired to this API.
+
+### Implemented API foundation
+
+- JWT access-token login and a `/me` endpoint.
+- Argon2 password hashing and admin/operator/viewer authorization checks.
+- Admin-only user provisioning and one-time environment-configured bootstrap endpoint.
+- SQLAlchemy persistence models for users, routers, peers, and audit events.
+- Encrypted-at-rest router credentials and peer private-key field using a Fernet key supplied outside the repository.
+- Router registration, HTTPS/TLS-verified connection testing, and read-only RouterOS REST discovery of WireGuard interfaces/peers.
+- Private-address-first router host policy; public hosts are blocked unless explicitly enabled in deployment configuration.
+- IP-prefix validation and dry-run peer creation preview.
+- Hash-linked audit events and admin audit-chain verification endpoint.
+- CI runs backend unit/API tests in addition to the frontend build.
+
+### API endpoints
+
+| Method | Endpoint | Access / behavior |
+|---|---|---|
+| GET | `/healthz` | Liveness |
+| GET | `/api/v1/health` | API readiness |
+| POST | `/api/v1/admin/bootstrap` | One-time bootstrap, only when configured and no users exist |
+| POST | `/api/v1/auth/login` | Obtain access and refresh tokens |
+| POST | `/api/v1/auth/refresh` | Rotate refresh token and issue a new access token |
+| POST | `/api/v1/auth/logout` | Revoke the presented refresh token |
+| GET | `/api/v1/auth/me` | Current authenticated user |
+| POST | `/api/v1/auth/users` | Admin creates a user and assigns a role |
+| GET / POST | `/api/v1/routers` | Authenticated inventory / operator-or-admin registration |
+| POST | `/api/v1/routers/{id}/test` | Operator-or-admin HTTPS connection test |
+| GET | `/api/v1/routers/{id}/wireguard/peers` | Authenticated read-only peer/interface discovery |
+| POST | `/api/v1/routers/{id}/peers/preview` | Validate and preview a proposed peer |
+| POST | `/api/v1/routers/{id}/peers` | Create peer with explicit confirmation; returns 503 unless `WGM_ENABLE_PEER_MUTATIONS=true` |
+| POST | `/api/v1/routers/{id}/peers/{peer_id}/config` | Audited WireGuard client config download; private key is sensitive and response is no-store |
+| POST | `/api/v1/routers/{id}/peers/{peer_id}/qr` | Audited QR image download; QR contains the full private client configuration |
+| DELETE | `/api/v1/routers/{id}/peers/{peer_id}?confirm=true` | Disable/revoke peer with explicit confirmation; gated by `WGM_ENABLE_PEER_MUTATIONS` |
+| GET | `/api/v1/admin/audit/verify` | Admin verifies the audit hash chain |
+
+### Run the backend locally
+
+Requires Python 3.11 or newer.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+cp backend/.env.example .env
+```
+
+Generate and configure both secrets before running the service. Do not commit the resulting values:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+Set the first output as `WGM_JWT_SECRET` and the second as `WGM_ENCRYPTION_KEY` in the protected environment. Configure bootstrap username/password only for initial setup, start the API, then remove bootstrap credentials from the environment after creating the admin.
+
+```bash
+alembic upgrade head
+uvicorn wireguard_manager_api.main:app --reload --app-dir backend
+python -m pytest backend/tests
+```
+
+Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedicated RouterOS account with minimal permissions and a valid HTTPS certificate. Never disable TLS verification to bypass certificate errors.
+
+### Current backend limitations
+
+This is **not yet a production-ready RouterOS management product**. Peer mutations are implemented behind the default-off `WGM_ENABLE_PEER_MUTATIONS` gate. Creation checks interface existence and overlapping router-side/local addresses, and attempts compensating deletion if local persistence fails. Revocation disables rather than deletes the RouterOS peer so a re-enable rollback can be attempted. Keep the gate off until integration tests against the exact RouterOS versions and timeout-after-write reconciliation are complete; client configuration and QR delivery endpoints are implemented with explicit server key/endpoint inputs, audit metadata (no secrets), and no-store response headers. Access remains restricted to operators/admins; protect these endpoints and downloaded artifacts as private-key material. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
+
+See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.

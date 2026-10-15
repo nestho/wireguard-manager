@@ -52,3 +52,12 @@ def test_linux_install_plan_is_distribution_specific():
     assert "zypper" in _install_plan("opensuse-leap", "zypper")[0]["command"]
     assert "apk add" in _install_plan("alpine", "apk")[0]["command"]
     assert _install_plan("unknown", "unknown") == []
+
+def test_linux_peer_address_validation_rejects_broad_and_loopback_routes():
+    from fastapi import HTTPException
+    from wireguard_manager_api.linux_peers import _address
+    assert _address("10.10.10.2/32") == "10.10.10.2/32"
+    with pytest.raises(HTTPException):
+        _address("10.0.0.0/8")
+    with pytest.raises(HTTPException):
+        _address("127.0.0.1/32")

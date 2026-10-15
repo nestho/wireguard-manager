@@ -176,6 +176,7 @@ async def revoke_peer(server_id: int, peer_id: int, confirm: bool = False, db: S
         except HTTPException as save_error:
             try:
                 await _run(conn, "sudo -n wg set " + shlex.quote(iface) + " peer " + shlex.quote(key) + " allowed-ips " + shlex.quote(peer.allowed_address))
+                await _run(conn, "sudo -n wg-quick save " + shlex.quote(iface), timeout=30)
             except HTTPException as rollback_error:
                 raise HTTPException(500, "Persistent save failed and live peer rollback failed; reconcile manually") from rollback_error
             raise save_error

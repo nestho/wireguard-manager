@@ -35,7 +35,8 @@ Run tests with `python -m pytest backend/tests`. API documentation is available 
 - Fernet-encrypted router credentials and an encrypted private-key field.
 - Router registration, TLS-verified RouterOS REST connectivity test, read-only peer discovery, point-in-time traffic counters, and bounded read-only diagnostics.
 - IP-literal host validation to reduce DNS rebinding/SSRF risk; public router addresses disabled by default.
-- Peer address validation and dry-run preview; hash-linked audit records with chain verification.
+- Peer address validation, router-side overlap checks, dry-run preview, and create/revoke endpoints guarded by `WGM_ENABLE_PEER_MUTATIONS=false` by default. Creation attempts compensating deletion if persistence fails; revocation disables peers so re-enable rollback is possible.
+- Hash-linked audit records with chain verification.
 
 ## Important limitations
 

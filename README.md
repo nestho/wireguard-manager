@@ -212,6 +212,7 @@ python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Set the first output as `WGM_JWT_SECRET` and the second as `WGM_ENCRYPTION_KEY` in the protected environment. Configure bootstrap username/password only for initial setup, start the API, then remove bootstrap credentials from the environment after creating the admin.
 
 ```bash
+alembic upgrade head
 uvicorn wireguard_manager_api.main:app --reload --app-dir backend
 python -m pytest backend/tests
 ```
@@ -220,6 +221,6 @@ Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedi
 
 ### Current backend limitations
 
-This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Refresh-session revocation, rate limiting, formal Alembic migrations, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. The API is not connected to the frontend demo yet.
+This is **not yet a production-ready RouterOS management product**. Peer mutations are intentionally blocked while safe RouterOS-side create/delete, rollback, IP-pool reconciliation, client configuration delivery, and integration tests are unfinished. Refresh-session revocation, rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet.
 
 See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.

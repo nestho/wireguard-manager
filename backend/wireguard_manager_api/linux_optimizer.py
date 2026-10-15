@@ -109,7 +109,7 @@ def _build_apply_script(recommendation_ids: list[str], previous: dict[str, int])
         for rid in recommendation_ids
     )
     lines.append("trap - EXIT")
-    return "; ".join(lines)
+    return "\n".join(lines)
 
 
 @router.post("/{server_id}/optimizer/inspect")

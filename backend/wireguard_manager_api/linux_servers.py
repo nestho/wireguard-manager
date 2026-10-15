@@ -148,6 +148,8 @@ def preview_install(server_id: int, db: Session = Depends(get_db), user: User = 
 
 @router.post("/{server_id}/install")
 async def install_wireguard(server_id: int, body: LinuxInstallRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin"))):
+    if not get_settings().enable_linux_mutations:
+        raise HTTPException(503, "Linux installation and peer mutations are disabled by deployment policy")
     if not body.confirm:
         raise HTTPException(409, "Explicit confirm=true is required after reviewing the installation plan")
     server = _server(db, server_id)

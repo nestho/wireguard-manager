@@ -181,14 +181,19 @@ The repository now includes a separate FastAPI service under `backend/`. The fro
 | GET | `/healthz` | Liveness |
 | GET | `/api/v1/health` | API readiness |
 | POST | `/api/v1/admin/bootstrap` | One-time bootstrap, only when configured and no users exist |
-| POST | `/api/v1/auth/login` | Obtain access and refresh tokens |\n| POST | `/api/v1/auth/refresh` | Rotate refresh token and issue a new access token |\n| POST | `/api/v1/auth/logout` | Revoke the presented refresh token |
+| POST | `/api/v1/auth/login` | Obtain access and refresh tokens |
+| POST | `/api/v1/auth/refresh` | Rotate refresh token and issue a new access token |
+| POST | `/api/v1/auth/logout` | Revoke the presented refresh token |
 | GET | `/api/v1/auth/me` | Current authenticated user |
 | POST | `/api/v1/auth/users` | Admin creates a user and assigns a role |
 | GET / POST | `/api/v1/routers` | Authenticated inventory / operator-or-admin registration |
 | POST | `/api/v1/routers/{id}/test` | Operator-or-admin HTTPS connection test |
 | GET | `/api/v1/routers/{id}/wireguard/peers` | Authenticated read-only peer/interface discovery |
 | POST | `/api/v1/routers/{id}/peers/preview` | Validate and preview a proposed peer |
-| POST | `/api/v1/routers/{id}/peers` | Create peer with explicit confirmation; returns 503 unless `WGM_ENABLE_PEER_MUTATIONS=true` |\n| POST | `/api/v1/routers/{id}/peers/{peer_id}/config` | Audited WireGuard client config download; private key is sensitive and response is no-store |\n| POST | `/api/v1/routers/{id}/peers/{peer_id}/qr` | Audited QR image download; QR contains the full private client configuration |\n| DELETE | `/api/v1/routers/{id}/peers/{peer_id}?confirm=true` | Disable/revoke peer with explicit confirmation; gated by `WGM_ENABLE_PEER_MUTATIONS` |
+| POST | `/api/v1/routers/{id}/peers` | Create peer with explicit confirmation; returns 503 unless `WGM_ENABLE_PEER_MUTATIONS=true` |
+| POST | `/api/v1/routers/{id}/peers/{peer_id}/config` | Audited WireGuard client config download; private key is sensitive and response is no-store |
+| POST | `/api/v1/routers/{id}/peers/{peer_id}/qr` | Audited QR image download; QR contains the full private client configuration |
+| DELETE | `/api/v1/routers/{id}/peers/{peer_id}?confirm=true` | Disable/revoke peer with explicit confirmation; gated by `WGM_ENABLE_PEER_MUTATIONS` |
 | GET | `/api/v1/admin/audit/verify` | Admin verifies the audit hash chain |
 
 ### Run the backend locally

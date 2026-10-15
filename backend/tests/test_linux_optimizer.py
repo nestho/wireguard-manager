@@ -22,3 +22,37 @@ def test_optimizer_apply_schema_rejects_empty_list():
         OptimizerApplyRequest(recommendation_ids=[], confirm=True)
     request = OptimizerApplyRequest(recommendation_ids=["network_backlog"], confirm=True)
     assert request.confirm is True
+
+
+def test_sysctl_parser_rejects_partial_or_malformed_values():
+    assert _int_sysctl("4194304\n") == 4194304
+    assert _int_sysctl("not-a-number 4194304") is None
+    assert _int_sysctl("4194304 trailing-text") is None
+
+
+def test_apply_script_has_atomic_create_and_failure_compensation():
+    from wireguard_manager_api.linux_optimizer import DROPIN, _build_apply_script
+
+    script = _build_apply_script(
+        ["socket_receive_buffer", "network_backlog"],
+        {"net.core.rmem_max": 212992, "net.core.netdev_max_backlog": 1000},
+    )
+    assert "ln \"$tmp\" \"$dropin\"" in script
+    assert "trap rollback EXIT" in script
+    assert 'if [ "$created" -eq 1 ]; then rm -f -- "$dropin" || true; fi' in script
+    assert "sysctl -w net.core.rmem_max=212992" in script
+    assert "sysctl -w net.core.netdev_max_backlog=1000" in script
+    assert DROPIN in script
+    assert "mv " not in script
+
+
+def test_apply_script_rejects_duplicate_unknown_ids_and_missing_previous_values():
+    import pytest
+    from wireguard_manager_api.linux_optimizer import _build_apply_script
+
+    with pytest.raises(ValueError):
+        _build_apply_script(["network_backlog", "network_backlog"], {"net.core.netdev_max_backlog": 1000})
+    with pytest.raises(ValueError):
+        _build_apply_script(["arbitrary_shell"], {})
+    with pytest.raises(ValueError):
+        _build_apply_script(["network_backlog"], {})

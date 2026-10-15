@@ -28,6 +28,14 @@ jobs:
         run: npm install
       - name: Type-check and build frontend
         run: npm run build
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run backend tests
+        run: python -m pytest backend/tests
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

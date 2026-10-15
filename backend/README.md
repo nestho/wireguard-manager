@@ -36,18 +36,24 @@ Run tests with `python -m pytest backend/tests`. API documentation is available 
 - RouterOS registration, TLS-verified REST connectivity test, read-only peer discovery, point-in-time traffic counters, and bounded diagnostics.
 - Linux SSH onboarding with pinned SHA256 host-key fingerprints, encrypted private-key storage, distro/kernel/package-manager detection, and package plans for Debian/Ubuntu, Fedora/RHEL family, openSUSE/SLES, and Alpine.
 - Linux interface/peer discovery, point-in-time counters, and gated peer create/revoke with `wg set`, `wg-quick save`, explicit confirmation, and compensating rollback attempts.
+- Admin-controlled Linux VPN optimizer: read-only host inspection, evidence-based sysctl recommendations, and optional allowlisted tuning behind a default-off feature flag.
 - Audited Linux client config and QR delivery with no-store response headers.
 - IP-literal host validation to reduce DNS rebinding/SSRF risk; public router addresses disabled by default.
-- Peer address validation, router-side overlap checks, dry-run preview, and create/revoke endpoints guarded by `WGM_ENABLE_PEER_MUTATIONS=false` by default. Creation attempts compensating deletion if persistence fails; revocation disables peers so re-enable rollback is possible.
-- Audited WireGuard `.conf` and QR PNG delivery with strict server key/endpoint input validation and no-store response headers. Treat both outputs as secrets: the QR embeds the entire client configuration.
+- Peer address validation, router-side overlap checks, dry-run preview, and create/revoke endpoints guarded by default-off mutation gates.
 - Hash-linked audit records with chain verification.
+
+## Linux VPN server optimizer
+
+See [linux-vpn-optimizer.md](linux-vpn-optimizer.md). The read-only endpoint `POST /api/v1/linux-servers/{id}/optimizer/inspect` collects kernel/CPU/memory/network-interface/sysctl/qdisc/NIC-offload/module/WireGuard snapshots and separates actionable recommendations from manual checks.
+
+The apply endpoint `POST /api/v1/linux-servers/{id}/optimizer/apply` is admin-only, requires `confirm=true`, and remains disabled unless `WGM_ENABLE_LINUX_OPTIMIZER_MUTATIONS=true` is deliberately configured. Current automatic changes are limited to socket receive/send buffer ceilings and the network receive backlog. Kernel upgrades/reboots, CPU governor, IRQ/RPS/XPS, NIC offloads, MTU, routes/firewall/forwarding, and congestion control are not changed automatically.
 
 ## Linux server setup and safety
 
-Linux API routes are documented at `/docs` under `linux-servers` and `linux-peers`. Registration requires a private SSH key and an independently verified `SHA256:` host-key fingerprint. The API pins the fingerprint and rejects hostnames to avoid DNS rebinding. Public SSH targets are blocked unless `WGM_ALLOW_PUBLIC_LINUX_HOSTS=true` is deliberately configured after egress review.
+Linux API routes are documented at `/docs` under `linux-servers`, `linux-peers`, and `linux-optimizer`. Registration requires a private SSH key and an independently verified `SHA256:` host-key fingerprint. Public SSH targets are blocked unless `WGM_ALLOW_PUBLIC_LINUX_HOSTS=true` is deliberately configured after egress review.
 
-Inspect a server before requesting its install plan. Package installation is limited to recognized OS/package-manager combinations and runs via `sudo -n`; it requires explicit confirmation. Linux package installation and peer changes are disabled by default (`WGM_ENABLE_LINUX_MUTATIONS=false`). Peer create/revoke currently targets active `wg-quick` managed interfaces with `/etc/wireguard/<interface>.conf`, calls `wg-quick save`, and attempts compensating rollback. Keep mutations disabled until tests against your exact distributions, sudo rules and WireGuard versions are completed. Never use root SSH if a restricted sudo account can satisfy the operational needs.
+Inspect a server before requesting an install plan. Package installation is limited to recognized OS/package-manager combinations and runs via `sudo -n`; it requires explicit confirmation. Linux package installation, peer changes, and optimizer changes are disabled by default. Keep gates off until tests against exact distributions, sudo rules, WireGuard versions, and expected traffic loads are completed.
 
 ## Important limitations
 
-This is **not production-ready**. RouterOS and Linux mutation gates remain disabled by default. SSH install and Linux peer lifecycle are implemented but require integration testing against supported distributions and sudo policies; timeouts after remote changes can still leave an ambiguous outcome. Rate limiting, background metrics history, external secret management, off-host tamper-resistant audit retention, frontend-to-API integration, and production hardening remain outstanding. Do not expose this service to the public internet without a deployment-specific security review, TLS termination, firewalling, and operational backups.
+This is **not production-ready**. Remote mutation operations need integration tests and careful reconciliation after timeouts. Rate limiting, background metrics history, external secret management, off-host tamper-resistant audit retention, frontend-to-API integration, and production hardening remain outstanding. Do not expose this service to the public internet without a deployment-specific security review, TLS termination, firewalling, and operational backups.

@@ -7,18 +7,19 @@ from fastapi.responses import JSONResponse
 from . import models
 from .auth import router as auth_router
 from .config import get_settings
-from .db import Base, engine
 from .routers import router as routers_router
 from .peers import router as peers_router
 from .admin import router as admin_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("wireguard_manager")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Local MVP convenience only. Production schema changes must use Alembic.
-    Base.metadata.create_all(bind=engine)
+    # Schema changes are applied only through reviewed Alembic migrations.
+    # This avoids silently mutating production schemas at application startup.
     yield
+
 app = FastAPI(title="WireGuard Manager API", description="Backend API for controlled RouterOS WireGuard inventory and management.", version="0.2.0", docs_url="/docs", redoc_url=None, lifespan=lifespan)
 settings = get_settings()
 origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
@@ -27,12 +28,15 @@ app.include_router(auth_router)
 app.include_router(routers_router)
 app.include_router(peers_router)
 app.include_router(admin_router)
+
 @app.get("/healthz", tags=["health"])
 def liveness() -> dict[str, str]:
     return {"status": "ok"}
+
 @app.get("/api/v1/health", tags=["health"])
 def readiness() -> dict[str, str]:
     return {"status": "ready", "service": "wireguard-manager-api", "router_connectivity": "configured-per-router"}
+
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled request failure path=%s", request.url.path)

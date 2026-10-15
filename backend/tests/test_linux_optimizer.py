@@ -56,3 +56,15 @@ def test_apply_script_rejects_duplicate_unknown_ids_and_missing_previous_values(
         _build_apply_script(["arbitrary_shell"], {})
     with pytest.raises(ValueError):
         _build_apply_script(["network_backlog"], {})
+
+
+def test_generated_apply_script_has_valid_posix_shell_syntax():
+    import subprocess
+    from wireguard_manager_api.linux_optimizer import _build_apply_script
+
+    script = _build_apply_script(
+        ["network_backlog"],
+        {"net.core.netdev_max_backlog": 1000},
+    )
+    result = subprocess.run(["sh", "-n"], input=script, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr

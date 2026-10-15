@@ -18,9 +18,10 @@ All notable changes to this project are documented here. The project follows Sem
 - Backend health, authentication, and address-validation tests in CI.
 
 ### Security / limitations
-- Peer mutation intentionally returns HTTP 501 until router-side rollback, interface selection, address-pool reconciliation, and end-to-end tests are complete.
+- Peer create/revoke now has an implementation behind `WGM_ENABLE_PEER_MUTATIONS=false` by default: preview checks local/router-side overlaps, creation uses explicit confirmation and compensating deletion, and revocation disables the peer with a re-enable rollback attempt. Keep the flag off until RouterOS-version-specific integration tests pass; timeout-after-write ambiguity and real-device rollback still need verification.
 - Refresh-session lifecycle, rate limiting, external secret-manager integration, and immutable off-host audit retention remain required before production use.
 - Added a checked-in Alembic environment and versioned schema migrations; application startup no longer silently creates or mutates the database schema.
+- Added gated RouterOS peer create/revoke operations with interface selection, remote address-overlap checks, encrypted private-key persistence, and compensating rollback attempts.
 - Added opaque, hashed refresh tokens with rotation, expiration, replay rejection, and logout revocation.
 - Current audit hash chain detects edits only while its trust anchor is protected; a database administrator able to rewrite all rows can recompute the chain.
 - Automatic schema creation is for development only; production deployment must apply reviewed Alembic migrations.

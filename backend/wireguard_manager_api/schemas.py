@@ -22,7 +22,7 @@ class RouterCreate(BaseModel):
     port: int = Field(default=443, ge=1, le=65535)
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=256)
-    tls_verify: bool = True
+    tls_verify: bool = True\n    @field_validator("tls_verify")\n    @classmethod\n    def tls_must_be_verified(cls, value: bool) -> bool:\n        if value is not True:\n            raise ValueError("TLS certificate verification cannot be disabled")\n        return value
 
 class RouterView(BaseModel):
     id: int

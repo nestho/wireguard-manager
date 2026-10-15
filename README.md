@@ -231,3 +231,22 @@ Local API documentation is available at `http://127.0.0.1:8000/docs`. Use a dedi
 This is **not yet a production-ready RouterOS management product**. Peer mutations are implemented behind the default-off `WGM_ENABLE_PEER_MUTATIONS` gate. Creation checks interface existence and overlapping router-side/local addresses, and attempts compensating deletion if local persistence fails. Revocation disables rather than deletes the RouterOS peer so a re-enable rollback can be attempted. Keep the gate off until integration tests against the exact RouterOS versions and timeout-after-write reconciliation are complete; client configuration and QR delivery endpoints are implemented with explicit server key/endpoint inputs, audit metadata (no secrets), and no-store response headers. Access remains restricted to operators/admins; protect these endpoints and downloaded artifacts as private-key material. Rate limiting, external secret-manager support, tamper-resistant off-host audit retention, live monitoring history, and a deployment hardening review are also outstanding. Refresh tokens are rotated and revocable; existing access JWTs remain valid until their short expiry. Database schema changes now use the checked-in Alembic migration instead of automatic table creation at API startup. The API is not connected to the frontend demo yet. Linux server operations require an independently verified SHA256 SSH host-key fingerprint and private-key authentication. Public SSH targets are blocked by default; use `WGM_ALLOW_PUBLIC_LINUX_HOSTS=true` only after reviewing egress controls. Package installation and Linux peer mutations remain disabled unless `WGM_ENABLE_LINUX_MUTATIONS=true` is explicitly set. The UI's Linux Servers section remains an illustrative demo and does not execute live SSH actions.
 
 See [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md), and [backend/README.md](backend/README.md) for release history, security guidance, and backend setup details.
+
+
+## Linux server support (backend)
+
+The API now includes a Linux server provider alongside RouterOS. It uses SSH public-key authentication and requires an independently verified SHA256 host-key fingerprint; SSH private keys are encrypted at rest. The backend detects /etc/os-release, kernel, package manager, and wg / wg-quick availability.
+
+Supported automatic package-plan families: Debian/Ubuntu (apt-get), Fedora/RHEL-family (dnf or yum), openSUSE/SLES (zypper), and Alpine (apk). Other distributions are detected but do not receive an automatic install plan.
+
+Linux API routes:
+- GET/POST /api/v1/linux-servers — inventory and admin-only registration
+- POST /api/v1/linux-servers/{id}/inspect — distribution and prerequisite inspection
+- POST /api/v1/linux-servers/{id}/install/preview — review the package plan
+- POST /api/v1/linux-servers/{id}/install — explicit-confirmation installation
+- GET /api/v1/linux-servers/{id}/peers/remote — live interface/peer discovery and point-in-time counters
+- POST /api/v1/linux-servers/{id}/peers/preview — peer address/interface preflight
+- POST /api/v1/linux-servers/{id}/peers and DELETE /api/v1/linux-servers/{id}/peers/{peer_id}?confirm=true — guarded peer lifecycle
+- POST /api/v1/linux-servers/{id}/peers/{peer_id}/config and /qr — audited client configuration delivery
+
+Security defaults: public SSH targets are blocked unless WGM_ALLOW_PUBLIC_LINUX_HOSTS=true; package installation and Linux peer mutations remain disabled unless WGM_ENABLE_LINUX_MUTATIONS=true. Only enable these after testing host-key pinning, least-privilege sudo -n rules, package-manager behavior, persistence, and rollback on the exact distributions in use. The frontend Linux Servers page is still a synthetic workflow preview, not a live client for these API endpoints.

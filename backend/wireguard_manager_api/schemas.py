@@ -80,10 +80,10 @@ class ClientConfigRequest(BaseModel):
     @classmethod
     def valid_endpoint(cls, value: str) -> str:
         import re
-        if not re.fullmatch(r"[A-Za-z0-9.:[\]-]+:[0-9]{1,5}", value):
+        host, sep, port_text = value.rpartition(":")
+        if not sep or not re.fullmatch(r"[A-Za-z0-9.\[\]:-]+", host) or not port_text.isdigit() or len(port_text) > 5:
             raise ValueError("endpoint must be a host or IP and port, e.g. vpn.example.com:51820")
-        port = int(value.rsplit(":", 1)[1])
-        if not 1 <= port <= 65535:
+        if not 1 <= int(port_text) <= 65535:
             raise ValueError("endpoint port must be between 1 and 65535")
         return value
 
@@ -103,7 +103,7 @@ class ClientConfigRequest(BaseModel):
     def valid_allowed_ips(cls, value: str) -> str:
         import ipaddress
         try:
-            networks = [str(ipaddress.ip_network(part.strip(), strict=False)) for part in value.split(",")]
+            networks = [str(ipaddress.ip_network(part.strip(), strict=False)) for part in value.split(",") if part.strip()]
         except ValueError as exc:
             raise ValueError("allowed_ips must be a comma-separated list of valid IP networks") from exc
         if not networks:

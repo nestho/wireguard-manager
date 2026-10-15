@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Activity, ArrowDownToLine, ArrowUpFromLine, Cable, Check, ChevronDown, CircleHelp, Command, Cpu, Gauge, Globe2, LayoutDashboard, LifeBuoy, ListChecks, LockKeyhole, Menu, MoreHorizontal, Network, Plus, Router, Search, Settings2, ShieldCheck, ShieldOff, Users, Wifi, X } from "lucide-react";
 
 type Peer = { name: string; device: string; router: string; address: string; status: "Online" | "Offline"; lastSeen: string; traffic: string };
@@ -65,7 +65,7 @@ function App() {
   </div>;
 }
 
-function Metric({ icon, label, value, meta, good }: { icon: React.ReactNode; label: string; value: string; meta: string; good?: string }) {
+function Metric({ icon, label, value, meta, good }: { icon: ReactNode; label: string; value: string; meta: string; good?: string }) {
   return <div className="metric-card"><div className="metric-top"><div className="metric-icon">{icon}</div>{good && <span className="metric-badge"><span/> {good}</span>}</div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-meta">{meta}</div></div>;
 }
 export default App;

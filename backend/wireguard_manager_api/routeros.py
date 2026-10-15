@@ -1,4 +1,4 @@
-"""Narrow RouterOS REST client. Uses TLS verification and exposes read operations only."""
+"""RouterOS REST client with TLS verification, bounded requests, and explicit write methods."""
 import ipaddress
 import httpx
 from .config import get_settings
@@ -28,20 +28,49 @@ class RouterOSClient:
         self.password = decrypt_secret(encrypted_password)
         self.verify_tls = verify_tls
 
-    async def get(self, path: str) -> list[dict] | dict:
+    @staticmethod
+    def _validate_path(path: str) -> None:
         if not path.startswith("/") or ".." in path or "?" in path or "#" in path:
             raise ValueError("Invalid RouterOS REST path")
+
+    async def _request(self, method: str, path: str, payload: dict | None = None) -> list[dict] | dict:
+        self._validate_path(path)
         try:
             async with httpx.AsyncClient(verify=self.verify_tls, timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=False) as client:
-                response = await client.get(f"{self.base_url}{path}", auth=(self.username, self.password))
+                response = await client.request(method, f"{self.base_url}{path}", auth=(self.username, self.password), json=payload)
                 if response.status_code in (301, 302, 307, 308):
                     raise RouterConnectionError("Router returned a redirect; redirects are blocked")
                 if response.status_code == 401:
                     raise RouterConnectionError("Router authentication failed")
                 response.raise_for_status()
+                if response.status_code == 204 or not response.content:
+                    return {}
                 data = response.json()
                 if not isinstance(data, (list, dict)):
                     raise RouterConnectionError("Unexpected RouterOS response format")
                 return data
-        except (httpx.HTTPError, ValueError) as exc:
-            raise RouterConnectionError("Router request failed; check reachability, HTTPS, certificate, and read-only account") from exc
+        except RouterConnectionError:
+            raise
+        except httpx.HTTPError as exc:
+            raise RouterConnectionError("Router request failed; check reachability, HTTPS, certificate, and account permissions") from exc
+
+    async def get(self, path: str) -> list[dict] | dict:
+        return await self._request("GET", path)
+
+    async def post(self, path: str, payload: dict) -> dict:
+        result = await self._request("POST", path, payload)
+        if not isinstance(result, dict):
+            raise RouterConnectionError("Unexpected RouterOS write response")
+        return result
+
+    async def patch(self, path: str, payload: dict) -> dict:
+        result = await self._request("PATCH", path, payload)
+        if not isinstance(result, dict):
+            raise RouterConnectionError("Unexpected RouterOS write response")
+        return result
+
+    async def delete(self, path: str) -> dict:
+        result = await self._request("DELETE", path)
+        if not isinstance(result, dict):
+            raise RouterConnectionError("Unexpected RouterOS delete response")
+        return result

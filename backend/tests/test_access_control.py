@@ -1,4 +1,3 @@
-import ipaddress
 import pytest
 
 from wireguard_manager_api.access_control import normalize_networks, nft_rules, routeros_rule_plan
@@ -33,10 +32,14 @@ def test_nft_rules_allow_declared_destinations_then_drop():
     script = nft_rules(2, "10.9.0.2/32", ["172.16.16.0/24"])
     assert "ip saddr 10.9.0.2 ip daddr 172.16.16.0/24 accept" in script
     assert script.index(" accept") < script.index(" drop")
-\n\ndef test_nft_rules_support_ipv6_peer_and_destinations():
+
+
+def test_nft_rules_support_ipv6_peer_and_destinations():
     script = nft_rules(3, "fd00::3/128", ["2001:db8:1::/64"])
     assert "ip6 saddr fd00::3 ip6 daddr 2001:db8:1::/64 accept" in script
-\n\ndef test_nft_rules_reject_mixed_address_families():
+
+
+def test_nft_rules_reject_mixed_address_families():
     with pytest.raises(ValueError):
         nft_rules(2, "10.9.0.2/32", ["2001:db8:1::/64"])
 

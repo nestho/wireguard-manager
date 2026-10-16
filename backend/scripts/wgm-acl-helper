@@ -78,7 +78,7 @@ def atomic_write(path: Path, content: str) -> None:
 def apply(peer_id: int, address: str, raw_networks: list[str]) -> None:
     peer_ip = ipaddress.ip_interface(address).ip
     networks = checked_networks(raw_networks, peer_ip.version)
-    if not CONFIG.is_file() or not re.search(r'include\s+["\\']?[^\n]*nftables\\.d/(?:\\*|[^\n]*\\.nft)', CONFIG.read_text(encoding="utf-8")):
+    if not CONFIG.is_file() or not re.search(r'include\s+.*nftables\.d/(?:\*|[^\n]*\.nft)', CONFIG.read_text(encoding="utf-8")):
         raise RuntimeError("/etc/nftables.conf must include /etc/nftables.d/*.nft")
     if not DROPIN_DIR.is_dir():
         raise RuntimeError("/etc/nftables.d does not exist")

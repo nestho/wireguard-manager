@@ -46,6 +46,8 @@ def nft_rules(peer_id: int, peer_address: str, networks: list[str]) -> str:
     if peer_id < 1:
         raise ValueError("peer_id must be positive")
     source = _peer_ip(peer_address)
+    if any(ipaddress.ip_network(network, strict=False).version != ipaddress.ip_address(source).version for network in networks):
+        raise ValueError("Destination network IP family must match the peer address")
     table = f"wgm_acl_{peer_id}"
     lines = [f"table inet {table} {{", "  chain forward_guard {", "    type filter hook forward priority -10; policy accept;"]
     for network in networks:

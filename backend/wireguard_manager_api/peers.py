@@ -166,6 +166,8 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
     if not peer or not peer.router_peer_id:
         raise HTTPException(404, "Active synchronized peer not found")
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
+    if any(ipaddress.ip_network(network).version != ipaddress.ip_address(source).version for network in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
     marker = f"wgm-acl-peer-{peer.id}-"
     firewall_path = "/ip/firewall/filter" if ipaddress.ip_address(source).version == 4 else "/ipv6/firewall/filter"
     try:

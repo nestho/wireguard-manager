@@ -221,8 +221,8 @@ async def read_only_router_audit(
         "checks": checks,
         "findings": findings,
         "next_actions": [
-            {"id": "continue", "label": "Continue to configuration", "enabled": not unassessed and counts["critical"] == 0 and counts["high"] == 0,
-             "note": "Continuing does not apply changes automatically; every future write action must have its own explicit confirmation."},
+            {"id": "continue", "label": "Continue to configuration", "enabled": True,
+             "note": "If high-risk findings or unassessed checks exist, review them carefully. Continuing does not apply changes automatically; every future write action must have its own explicit confirmation."},
             {"id": "export", "label": "Export report", "enabled": True},
             {"id": "close", "label": "Close", "enabled": True},
         ],

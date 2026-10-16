@@ -167,7 +167,7 @@ def get_peer_access_control(router_id: int, peer_id: int, db: Session = Depends(
         raise HTTPException(404, "Peer not found")
     import json
     networks = json.loads(peer.access_networks_json or "[]")
-    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforcement": "routeros-firewall" if peer.status == "active" else "not-active"}
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforced": peer.access_control_applied, "enforcement": "routeros-firewall" if peer.access_control_applied else "needs-reconciliation"}
 
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(router_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
@@ -213,6 +213,7 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
         message = "RouterOS ACL failed and rollback could not be confirmed; inspect firewall rules immediately" if cleanup_failed else "RouterOS ACL application failed; new rules were rolled back where possible"
         raise HTTPException(502, message) from exc
     peer.access_networks_json = json.dumps(networks)
+    peer.access_control_applied = True
     record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), details={"router_id": router_id, "network_count": len(networks), "default_deny": True})
     db.commit()
     return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "routeros-firewall"}

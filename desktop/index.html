@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WireGuard Manager — Read-only Audit</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1020;color:#e8edf7}
+*{box-sizing:border-box}body{margin:0}header{padding:22px 28px;border-bottom:1px solid #26324a;display:flex;align-items:center;justify-content:space-between}
+h1{font-size:20px;margin:0}h2{font-size:18px;margin:0 0 16px}p{color:#aab6cc;line-height:1.55}.sub{font-size:12px;color:#9eabc1;margin-top:6px}
+main{max-width:1100px;margin:28px auto;padding:0 20px;display:grid;gap:18px}.card{background:#111a2e;border:1px solid #293752;border-radius:14px;padding:22px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:7px;flex:1;min-width:190px}label{font-size:12px;color:#b7c4da}
+input,select{background:#0a1223;border:1px solid #354561;color:#eef4ff;border-radius:8px;padding:11px;font-size:14px;width:100%}
+button{border:1px solid #425674;border-radius:9px;padding:10px 14px;background:#1a2944;color:#edf4ff;cursor:pointer;font-weight:600}button.primary{background:#4b6fff;border-color:#4b6fff}button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.muted{color:#98a7c0;font-size:13px}.status{padding:10px 12px;border-radius:8px;background:#17253b;color:#bcd0f0;margin-top:12px;white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.metric{padding:13px;border-radius:10px;background:#0b1427;border:1px solid #263550}.metric b{font-size:23px;display:block}.metric span{font-size:12px;color:#aab6cc}
+.finding{border:1px solid #34435e;border-left:4px solid #7385a6;border-radius:9px;padding:14px;margin:10px 0}.finding.high,.finding.critical{border-left-color:#ff6b76}.finding.medium{border-left-color:#f0b44e}.finding.review{border-left-color:#7c8dff}.finding h3{font-size:14px;margin:0 0 7px}.finding p{font-size:13px;margin:6px 0}.pill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#dce6fa}
+#report[hidden],#login[hidden],#workspace[hidden]{display:none}.footer{font-size:11px;color:#74839e;padding:8px 0 22px}.notice{color:#e6d9a8}
+@media(max-width:700px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}header{padding:18px}.card{padding:16px}}
+</style>
+</head>
+<body>
+<header><div><h1>WireGuard Manager</h1><div class="sub">RouterOS pre-configuration audit · Read-only mode</div></div><button id="closeTop">Close</button></header>
+<main>
+<section id="login" class="card">
+<h2>Connect to the WireGuard Manager API</h2>
+<p>This desktop client audits a router through the existing WireGuard Manager API. The API service must already be running and configured. The audit sends read-only RouterOS requests and does not change router configuration.</p>
+<div class="row">
+<div class="field"><label for="api">API base URL</label><input id="api" value="http://127.0.0.1:8000" autocomplete="url"></div>
+<div class="field"><label for="username">Username</label><input id="username" autocomplete="username"></div>
+<div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password"></div>
+</div>
+<div class="actions"><button id="loginBtn" class="primary">Connect</button></div><div id="loginStatus" class="status" role="status">No connection established.</div>
+</section>
+<section id="workspace" class="card" hidden>
+<h2>Choose a registered MikroTik router</h2>
+<div class="row"><div class="field"><label for="router">Router</label><select id="router"></select></div><button id="refreshRouters">Refresh list</button><button id="auditBtn" class="primary">Run read-only audit</button></div>
+<div class="status" id="workStatus" role="status">Select a router and run the audit before continuing.</div>
+</section>
+<section id="report" class="card" hidden>
+<div class="row" style="justify-content:space-between;align-items:center"><div><h2>Audit report</h2><div id="reportMeta" class="muted"></div></div><span id="overall" class="pill"></span></div>
+<p class="notice">This report is a configuration review, not a penetration test or a guarantee of security. An unassessed check is not a clean result. RouterOS settings have not been changed.</p>
+<div class="grid" id="metrics"></div><div id="checks"></div><h2 style="margin-top:24px">Findings and recommendations</h2><div id="findings"></div>
+<div class="actions">
+<button id="exportJson" class="primary">Export JSON</button><button id="exportHtml">Export HTML report</button><button id="continueBtn">Continue to configuration docs</button><button id="newAudit">Audit another router</button><button id="closeBottom">Close application</button>
+</div><p class="footer">The version check does not consult a live CVE feed. Verify the exact RouterOS version against official MikroTik security advisories.</p>
+</section>
+<div class="footer">Credentials and tokens are held in application memory for this session only. Use HTTPS when connecting to a remote API.</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let apiBase="http://127.0.0.1:8000",token="",currentReport=null;
+async function api(path,method="GET",body=null){
+ return window.wgm.request({baseUrl:apiBase,path,method,token,body});
+}
+function showStatus(id,msg){$(id).textContent=msg}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function download(name,content,type){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+async function loadRouters(){
+ const data=await api("/api/v1/routers");
+ if(!Array.isArray(data))throw new Error("API returned an unexpected router list.");
+ $("router").innerHTML=data.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+' · '+esc(r.host)+':'+esc(r.port)+'</option>').join("");
+ if(!data.length)showStatus("workStatus","No routers are registered yet. Register one through the API before auditing.");
+ else showStatus("workStatus",data.length+" registered router(s) loaded. The audit will only read configuration.");
+}
+$("loginBtn").onclick=async()=>{
+ apiBase=$("api").value.trim().replace(/\/$/,"");
+ if(!/^https?:\/\//i.test(apiBase)){showStatus("loginStatus","Enter a valid http:// or https:// API URL.");return;}
+ $("loginBtn").disabled=true;
+ try{
+  const result=await window.wgm.request({baseUrl:apiBase,path:"/api/v1/auth/login",method:"POST",body:{username:$("username").value,password:$("password").value}});
+  if(!result.access_token)throw new Error("Login response did not include an access token.");
+  token=result.access_token;
+  $("password").value="";
+  $("login").hidden=true;$("workspace").hidden=false;
+  await loadRouters();
+ }catch(e){showStatus("loginStatus","Connection/login failed: "+e.message);}
+ finally{$("loginBtn").disabled=false;}
+};
+$("refreshRouters").onclick=async()=>{try{await loadRouters()}catch(e){showStatus("workStatus","Could not load routers: "+e.message)}};
+$("auditBtn").onclick=async()=>{
+ const id=$("router").value;if(!id){showStatus("workStatus","Select a registered router first.");return;}
+ $("auditBtn").disabled=true;$("report").hidden=true;showStatus("workStatus","Running read-only checks…");
+ try{
+  currentReport=await api("/api/v1/routers/"+encodeURIComponent(id)+"/audit");
+  renderReport(currentReport);$("report").hidden=false;showStatus("workStatus","Audit complete. No RouterOS configuration changes were made.");
+ }catch(e){showStatus("workStatus","Audit failed: "+e.message)}
+ finally{$("auditBtn").disabled=false;}
+};
+function renderReport(r){
+ const counts=r.summary?.findings_by_severity||{};
+ $("reportMeta").textContent=(r.router?.name||"Router")+" · "+new Date(r.generated_at).toLocaleString()+" · Read-only";
+ $("overall").textContent=r.status==="no_findings_detected"?"No findings detected":"Attention required";
+ $("metrics").innerHTML=[["Critical",counts.critical||0],["High",counts.high||0],["Medium",counts.medium||0],["Review / unassessed",(counts.review||0)+(r.summary?.checks_unassessed||0)]].map(([l,n])=>'<div class="metric"><b>'+esc(n)+'</b><span>'+esc(l)+'</span></div>').join("");
+ $("checks").innerHTML='<h2 style="margin-top:24px">Checks ('+esc(r.summary?.checks_collected||0)+'/'+esc(r.summary?.checks_total||0)+' collected)</h2>'+((r.checks||[]).map(c=>'<div class="finding '+(c.status==="unassessed"?"review":"")+'"><h3>'+esc(c.name.replaceAll("_"," "))+' — '+esc(c.status)+'</h3><p>'+esc(c.note||((c.item_count??0)+" item(s) collected"))+'</p></div>').join("")||'<p>No checks returned.</p>');
+ $("findings").innerHTML=(r.findings||[]).map(f=>'<div class="finding '+esc(f.severity)+'"><div class="pill">'+esc(f.severity)+' · '+esc(f.id)+'</div><h3>'+esc(f.title)+'</h3><p>'+esc(f.description)+'</p><p><b>Recommendation:</b> '+esc(f.recommendation)+'</p>'+(Object.keys(f.evidence||{}).length?'<p class="muted">Evidence: '+esc(JSON.stringify(f.evidence))+'</p>':"")+'</div>').join("")||"<p>No findings were generated; review the unassessed checks and report limitations before proceeding.</p>";
+ $("continueBtn").disabled=(r.next_actions||[]).find(x=>x.id==="continue")?.enabled===false;
+}
+$("exportJson").onclick=()=>{if(currentReport)download("routeros-audit-"+currentReport.router.id+".json",JSON.stringify(currentReport,null,2),"application/json");};
+$("exportHtml").onclick=()=>{if(!currentReport)return;const report=currentReport;const body='<!doctype html><meta charset="utf-8"><title>RouterOS audit report</title><style>body{font:15px system-ui;max-width:1000px;margin:32px auto;padding:0 20px;color:#182235}article{border:1px solid #ccd4df;border-left:5px solid #7b8aa4;padding:14px;margin:12px 0}h1,h2{color:#17223a}.warn{color:#8c3030}</style><h1>WireGuard Manager — RouterOS Audit</h1><p>Router: '+esc(report.router.name)+' ('+esc(report.router.host)+')</p><p>Generated: '+esc(report.generated_at)+' · Read-only: yes · Configuration changed: no</p><h2>Summary</h2><pre>'+esc(JSON.stringify(report.summary,null,2))+'</pre><h2>Findings</h2>'+(report.findings||[]).map(f=>'<article><b>'+esc(f.severity)+' — '+esc(f.title)+'</b><p>'+esc(f.description)+'</p><p><b>Recommendation:</b> '+esc(f.recommendation)+'</p></article>').join("")+'<h2>Checks</h2><pre>'+esc(JSON.stringify(report.checks,null,2))+'</pre><h2>Limitations</h2><ul>'+report.limitations.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul>';download("routeros-audit-"+report.router.id+".html",body,"text/html");};
+$("continueBtn").onclick=()=>{if(!currentReport)return;window.wgm.openDocs(apiBase);};
+$("newAudit").onclick=()=>{$("report").hidden=true;$("workspace").scrollIntoView({behavior:"smooth"});};
+$("closeTop").onclick=$("closeBottom").onclick=()=>window.wgm.closeApp();
+</script>
+</body></html>

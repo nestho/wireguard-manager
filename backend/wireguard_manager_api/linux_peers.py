@@ -188,6 +188,15 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
         raise HTTPException(502, "ACL could not be confirmed; the new peer was revoked") from acl_exc
     return {**_peer_view(peer), "access_networks": _access_networks(body.access_networks), "private_key_returned": False, "client_config_available": True}
 
+@router.get("/{peer_id}/access-control")
+def get_peer_access_control(server_id: int, peer_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    peer = db.query(LinuxPeer).filter_by(id=peer_id, server_id=server_id).first()
+    if not peer:
+        raise HTTPException(404, "Linux peer not found")
+    import json
+    networks = json.loads(peer.access_networks_json or "[]")
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforcement": "linux-nftables" if peer.status == "active" else "not-active"}
+
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(server_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     """Apply a per-peer destination allowlist using nftables; empty list means deny all forwarded destinations."""

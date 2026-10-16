@@ -137,7 +137,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
 
     # ACL is installed while the peer remains disabled; only activate after successful enforcement.
     try:
-        await update_peer_access_control(router_id, peer.id, {"access_networks": networks}, db, user)
+        await update_peer_access_control(router_id, peer.id, AccessControlRequest(access_networks=networks), db, user)
         await client.patch(_router_peer_path(str(remote_id)), {"disabled": "false"})
     except Exception as exc:
         peer.status = "pending"

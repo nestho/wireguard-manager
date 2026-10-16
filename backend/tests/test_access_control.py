@@ -29,12 +29,16 @@ def test_empty_acl_generates_deny_all_for_peer():
     assert " accept" not in script
 
 
-def test_nft_rules_allow_only_declared_destinations_then_drop():
-    script = nft_rules(2, "10.9.0.2/32", ["172.16.16.0/24", "2001:db8:1::/64"])
+def test_nft_rules_allow_declared_destinations_then_drop():
+    script = nft_rules(2, "10.9.0.2/32", ["172.16.16.0/24"])
     assert "ip saddr 10.9.0.2 ip daddr 172.16.16.0/24 accept" in script
-    assert "ip6 saddr 10.9.0.2 ip6 daddr 2001:db8:1::/64 accept" not in script
-    assert "ip6 daddr 2001:db8:1::/64 accept" in script
     assert script.index(" accept") < script.index(" drop")
+\n\ndef test_nft_rules_support_ipv6_peer_and_destinations():
+    script = nft_rules(3, "fd00::3/128", ["2001:db8:1::/64"])
+    assert "ip6 saddr fd00::3 ip6 daddr 2001:db8:1::/64 accept" in script
+\n\ndef test_nft_rules_reject_mixed_address_families():
+    with pytest.raises(ValueError):
+        nft_rules(2, "10.9.0.2/32", ["2001:db8:1::/64"])
 
 
 def test_routeros_rule_plan_has_allow_before_deny_and_is_peer_scoped():

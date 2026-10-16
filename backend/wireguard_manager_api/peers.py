@@ -90,48 +90,65 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         raise HTTPException(503, "Live peer mutations are disabled by deployment policy")
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
-    # Re-run the complete preview immediately before a write to reduce TOCTOU risk.
+    networks = normalize_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address; dual-stack peers need separate addresses")
     await preview_peer(router_id, body, db, user)
     private_key, public_key = generate_keypair()
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
     remote_id = None
+    peer = None
     try:
         created = await client.post("/interface/wireguard/peers", {
-            "interface": body.interface_name,
-            "public-key": public_key,
-            "allowed-address": address,
-            "comment": body.name,
-            "disabled": "true",  # fail closed until destination ACL is installed
+            "interface": body.interface_name, "public-key": public_key,
+            "allowed-address": address, "comment": body.name, "disabled": "true",
         })
         remote_id = created.get(".id")
         if not remote_id:
-            raise HTTPException(502, "RouterOS may have created a peer but returned no identifier; inspect the router before retrying")
-        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name, public_key=public_key, private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, endpoint=body.endpoint, access_networks_json=__import__("json").dumps(normalize_networks(body.access_networks)), status="active")
+            raise HTTPException(502, "RouterOS may have created a disabled peer but returned no identifier; inspect the router")
+        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name,
+            public_key=public_key, private_key_ciphertext=encrypt_secret(private_key),
+            allowed_address=address, endpoint=body.endpoint,
+            access_networks_json=__import__("json").dumps(networks), status="pending")
         db.add(peer)
         db.flush()
-        record_event(db, user.username, "peer.create", "peer", str(peer.id), details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address, "access_networks": normalize_networks(body.access_networks), "router_peer_id": str(remote_id)})
+        record_event(db, user.username, "peer.create", "peer", str(peer.id),
+            details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address,
+                     "access_networks": networks, "router_peer_id": str(remote_id), "initially_disabled": True})
         db.commit()
-        # Keep the RouterOS peer disabled until its destination firewall ACL is installed.
-        await update_peer_access_control(router_id, peer.id, {"access_networks": body.access_networks}, db, user)
-        try:
-            await client.patch(_router_peer_path(str(remote_id)), {"disabled": "false"})
-        except RouterConnectionError as enable_exc:
-            raise HTTPException(502, "ACL was installed but peer activation was not confirmed; inspect RouterOS before retrying") from enable_exc
-        return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": normalize_networks(body.access_networks), "status": peer.status, "created_at": peer.created_at.isoformat(), "private_key_returned": False}
     except Exception as exc:
         db.rollback()
         if remote_id:
             try:
                 await client.delete(_router_peer_path(str(remote_id)))
             except Exception:
-                record_event(db, user.username, "peer.create.rollback_failed", "router", str(router_id), outcome="critical", details={"router_peer_id": str(remote_id)})
+                record_event(db, user.username, "peer.create.rollback_failed", "router", str(router_id),
+                    outcome="critical", details={"router_peer_id": str(remote_id)})
                 db.commit()
-                raise HTTPException(500, "Database persistence failed and router rollback could not be confirmed; reconcile this peer manually") from exc
+                raise HTTPException(500, "Peer creation failed and remote cleanup could not be confirmed; inspect RouterOS") from exc
         if isinstance(exc, HTTPException):
             raise
         if isinstance(exc, RouterConnectionError):
-            raise HTTPException(502, "RouterOS peer creation did not complete cleanly; a timed-out write may have applied, so inspect the router before retrying") from exc
-        raise HTTPException(500, "Peer creation failed and the router rollback was attempted") from exc
+            raise HTTPException(502, "RouterOS peer creation did not complete cleanly; inspect the router before retrying") from exc
+        raise HTTPException(500, "Peer creation failed and remote cleanup was attempted") from exc
+
+    # ACL is installed while the peer remains disabled; only activate after successful enforcement.
+    try:
+        await update_peer_access_control(router_id, peer.id, {"access_networks": networks}, db, user)
+        await client.patch(_router_peer_path(str(remote_id)), {"disabled": "false"})
+    except Exception as exc:
+        peer.status = "pending"
+        record_event(db, user.username, "peer.create.acl_or_enable_failed", "peer", str(peer.id),
+            outcome="failed", details={"router_id": router_id, "peer_remains_disabled": True})
+        db.commit()
+        if isinstance(exc, HTTPException):
+            raise HTTPException(502, "Peer remains disabled because ACL application or activation was not confirmed; inspect RouterOS before retrying") from exc
+        raise HTTPException(502, "Peer remains disabled because ACL application or activation was not confirmed") from exc
+    peer.status = "active"
+    db.commit()
+    return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key,
+        "allowed_address": peer.allowed_address, "access_networks": networks, "status": peer.status,
+        "created_at": peer.created_at.isoformat(), "private_key_returned": False}
 
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(router_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):

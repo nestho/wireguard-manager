@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from .access_control import normalize_networks, routeros_rule_plan\nfrom .audit import record_event
+from .access_control import normalize_networks, routeros_rule_plan
+from .audit import record_event
 from .config import get_settings
 from .db import get_db
 from .dependencies import current_user, require_roles

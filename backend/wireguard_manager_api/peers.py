@@ -126,6 +126,41 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
             raise HTTPException(502, "RouterOS peer creation did not complete cleanly; a timed-out write may have applied, so inspect the router before retrying") from exc
         raise HTTPException(500, "Peer creation failed and the router rollback was attempted") from exc
 
+@router.put("/{peer_id}/access-control")
+async def update_peer_access_control(router_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    """Apply a per-peer destination allowlist on RouterOS. Empty list means deny all forwarded destinations."""
+    import json
+    try:
+        networks = normalize_networks(body.get("access_networks", []))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    item = _router(db, router_id)
+    peer = db.query(Peer).filter(Peer.id == peer_id, Peer.router_id == router_id, Peer.status == "active").first()
+    if not peer or not peer.router_peer_id:
+        raise HTTPException(404, "Active synchronized peer not found")
+    client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
+    marker = f"wgm-acl-peer-{peer.id}-"
+    try:
+        existing = await client.get("/ip/firewall/filter")
+        existing = existing if isinstance(existing, list) else [existing]
+        plan = routeros_rule_plan(peer.id, peer.allowed_address, networks)
+        created_ids = []
+        for rule in plan:
+            result = await client.post("/ip/firewall/filter", {**rule, "place-before": "0"})
+            if result.get(".id"):
+                created_ids.append(str(result[".id"]))
+        for rule in existing:
+            if str(rule.get("comment", "")).startswith(marker) and str(rule.get(".id")) not in created_ids:
+                await client.delete("/ip/firewall/filter/" + str(rule[".id"]))
+    except RouterConnectionError as exc:
+        record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), outcome="failed", details={"router_id": router_id, "network_count": len(networks)})
+        db.commit()
+        raise HTTPException(502, "RouterOS ACL application was not confirmed; inspect firewall rules before retrying") from exc
+    peer.access_networks_json = json.dumps(networks)
+    record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), details={"router_id": router_id, "network_count": len(networks), "default_deny": True})
+    db.commit()
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "routeros-firewall"}
+
 @router.delete("/{peer_id}", status_code=200)
 async def revoke_peer(router_id: int, peer_id: int, confirm: bool = False, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     if not confirm:

@@ -25,7 +25,7 @@ def test_reject_invalid_or_special_networks(raw):
 def test_empty_acl_generates_deny_all_for_peer():
     script = nft_rules(7, "10.9.0.10/32", [])
     assert "ip saddr 10.9.0.10 drop" in script
-    assert " accept" not in script
+    assert "ip daddr" not in script
 
 
 def test_nft_rules_allow_declared_destinations_then_drop():

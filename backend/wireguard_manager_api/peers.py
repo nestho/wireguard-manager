@@ -167,18 +167,19 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
         raise HTTPException(404, "Active synchronized peer not found")
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
     marker = f"wgm-acl-peer-{peer.id}-"
+    firewall_path = "/ip/firewall/filter" if ipaddress.ip_address(source).version == 4 else "/ipv6/firewall/filter"
     try:
-        existing = await client.get("/ip/firewall/filter")
+        existing = await client.get(firewall_path)
         existing = existing if isinstance(existing, list) else [existing]
         plan = routeros_rule_plan(peer.id, peer.allowed_address, networks)
         created_ids = []
         for rule in reversed(plan):
-            result = await client.post("/ip/firewall/filter", {**rule, "place-before": "0"})
+            result = await client.post(firewall_path, {**rule, "place-before": "0"})
             if result.get(".id"):
                 created_ids.append(str(result[".id"]))
         for rule in existing:
             if str(rule.get("comment", "")).startswith(marker) and str(rule.get(".id")) not in created_ids:
-                await client.delete("/ip/firewall/filter/" + str(rule[".id"]))
+                await client.delete(firewall_path + "/" + str(rule[".id"]))
     except RouterConnectionError as exc:
         record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), outcome="failed", details={"router_id": router_id, "network_count": len(networks)})
         db.commit()

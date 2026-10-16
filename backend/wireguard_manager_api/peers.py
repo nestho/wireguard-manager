@@ -101,6 +101,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
             "public-key": public_key,
             "allowed-address": address,
             "comment": body.name,
+            "disabled": "true",  # fail closed until destination ACL is installed
         })
         remote_id = created.get(".id")
         if not remote_id:
@@ -110,7 +111,13 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         db.flush()
         record_event(db, user.username, "peer.create", "peer", str(peer.id), details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address, "access_networks": normalize_networks(body.access_networks), "router_peer_id": str(remote_id)})
         db.commit()
-        return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key, "allowed_address": peer.allowed_address, "status": peer.status, "created_at": peer.created_at.isoformat(), "private_key_returned": False}
+        # Keep the RouterOS peer disabled until its destination firewall ACL is installed.
+        await update_peer_access_control(router_id, peer.id, {"access_networks": body.access_networks}, db, user)
+        try:
+            await client.patch(_router_peer_path(str(remote_id)), {"disabled": "false"})
+        except RouterConnectionError as enable_exc:
+            raise HTTPException(502, "ACL was installed but peer activation was not confirmed; inspect RouterOS before retrying") from enable_exc
+        return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": normalize_networks(body.access_networks), "status": peer.status, "created_at": peer.created_at.isoformat(), "private_key_returned": False}
     except Exception as exc:
         db.rollback()
         if remote_id:

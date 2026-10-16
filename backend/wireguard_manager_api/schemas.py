@@ -136,3 +136,6 @@ class HealthResponse(BaseModel):
     providers: list[str]
     router_connectivity: str
     linux_connectivity: str
+
+class AccessControlRequest(BaseModel):
+    access_networks: list[str] = Field(default_factory=list, max_length=128)

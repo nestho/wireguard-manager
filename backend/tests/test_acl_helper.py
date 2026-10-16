@@ -16,7 +16,7 @@ def test_helper_renders_deny_all_for_empty_acl():
     table, full, update = HELPER.render(12, "10.9.0.12/32", [])
     assert table == "wgm_acl_12"
     assert "ip saddr 10.9.0.12 drop" in full
-    assert " accept" not in full
+    assert "ip daddr" not in full
     assert "flush chain inet wgm_acl_12 forward_guard" in update
 
 

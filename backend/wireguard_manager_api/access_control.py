@@ -23,7 +23,7 @@ def normalize_networks(values: Iterable[str]) -> list[str]:
             network = ipaddress.ip_network(raw.strip(), strict=False)
         except ValueError as exc:
             raise ValueError(f"Invalid access network: {raw!r}") from exc
-        if network.is_loopback or network.is_link_local or network.is_multicast or network.is_unspecified:
+        if network.is_loopback or network.is_link_local or network.is_multicast or network.prefixlen == 0:
             raise ValueError(f"Special-purpose destination network is not allowed: {network}")
         canonical = str(network)
         if canonical not in seen:

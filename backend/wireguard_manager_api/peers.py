@@ -109,7 +109,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name,
             public_key=public_key, private_key_ciphertext=encrypt_secret(private_key),
             allowed_address=address, endpoint=body.endpoint,
-            access_networks_json=__import__("json").dumps(networks), status="pending")
+            access_networks_json=__import__("json").dumps(networks), status="active")
         db.add(peer)
         db.flush()
         record_event(db, user.username, "peer.create", "peer", str(peer.id),
@@ -169,7 +169,7 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: dict, d
         existing = existing if isinstance(existing, list) else [existing]
         plan = routeros_rule_plan(peer.id, peer.allowed_address, networks)
         created_ids = []
-        for rule in plan:
+        for rule in reversed(plan):
             result = await client.post("/ip/firewall/filter", {**rule, "place-before": "0"})
             if result.get(".id"):
                 created_ids.append(str(result[".id"]))

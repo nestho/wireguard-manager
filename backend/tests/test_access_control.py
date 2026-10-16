@@ -31,7 +31,7 @@ def test_empty_acl_generates_deny_all_for_peer():
 def test_nft_rules_allow_declared_destinations_then_drop():
     script = nft_rules(2, "10.9.0.2/32", ["172.16.16.0/24"])
     assert "ip saddr 10.9.0.2 ip daddr 172.16.16.0/24 accept" in script
-    assert script.index(" accept") < script.index(" drop")
+    assert script.index("ip daddr 172.16.16.0/24 accept") < script.index("ip saddr 10.9.0.2 drop")
 
 
 def test_nft_rules_support_ipv6_peer_and_destinations():

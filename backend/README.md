@@ -153,6 +153,21 @@ Use one destination network per item. Empty `access_networks` means deny all for
 
 For RouterOS, the API installs managed allow rules followed by a source-specific drop rule at the start of the matching IPv4 or IPv6 forward filter, and tags managed rules with `wgm-acl-peer-{id}-...`. New RouterOS peers are created disabled and only enabled after the ACL operation succeeds.
 
-For Linux, ACL enforcement uses a per-peer nftables forward chain and writes a persistent `/etc/nftables.d/wgm_acl_{id}.nft` drop-in. The operation refuses to proceed unless `/etc/nftables.conf` already includes the `/etc/nftables.d/*.nft` drop-in pattern and the directory exists. This controls forwarded traffic; host-local services on the VPN server are not covered by the forward hook.
+For Linux, ACL enforcement delegates to a constrained root-owned helper rather than running arbitrary nftables commands through sudo. Install `backend/scripts/wgm-acl-helper` as `/usr/local/sbin/wgm-acl-helper` owned by `root:root`, mode `0755`, and configure the SSH account to invoke only this helper via sudo. The helper validates all arguments, checks that `/etc/nftables.conf` includes `/etc/nftables.d/*.nft`, applies an nftables transaction, and atomically persists `/etc/nftables.d/wgm_acl_{id}.nft`. This controls forwarded traffic; host-local services on the VPN server are not covered by the forward hook.
+
+Example one-time setup, performed by a trusted administrator on each Linux server:
+
+```bash
+sudo install -o root -g root -m 0755 backend/scripts/wgm-acl-helper /usr/local/sbin/wgm-acl-helper
+sudo visudo -f /etc/sudoers.d/wgm-acl-helper
+```
+
+Add a narrowly scoped sudoers entry for the dedicated SSH account (replace `wgm-ssh-user`):
+
+```sudoers
+wgm-ssh-user ALL=(root) NOPASSWD: /usr/local/sbin/wgm-acl-helper
+```
+
+Do not grant unrestricted `nft`, `sh`, or `install` sudo access for ACL management. Ensure the helper is root-owned and not writable by the SSH account, and validate the nftables include configuration before enabling live mutations.
 
 **Important limitations:** this frontend is still demo-only and is not connected to these API endpoints. Existing peers are not automatically reconciled by the migration; apply the ACL endpoint to each existing peer before relying on default-deny policy. Test the exact RouterOS version, nftables version, and existing firewall ordering in a lab before enabling live mutations. These endpoints do not replace a review of pre-existing broad accept rules or routing/NAT policy.

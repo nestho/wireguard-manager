@@ -303,7 +303,9 @@ def download_config(server_id: int, peer_id: int, body: ClientConfigRequest, db:
         private_key = decrypt_secret(peer.private_key_ciphertext)
     except RuntimeError as exc:
         raise HTTPException(500, "Peer key cannot be decrypted; verify the encryption key and backups") from exc
-    config = "[Interface]\nPrivateKey = " + private_key + "\nAddress = " + peer.allowed_address + "\nDNS = " + body.dns + "\n\n[Peer]\nPublicKey = " + body.server_public_key + "\nAllowedIPs = " + body.allowed_ips + "\nEndpoint = " + body.endpoint + "\nPersistentKeepalive = " + str(body.persistent_keepalive) + "\n"
+    access_networks = __import__("json").loads(peer.access_networks_json or "[]")
+    client_allowed_ips = ", ".join(access_networks) if access_networks else body.allowed_ips
+    config = "[Interface]\nPrivateKey = " + private_key + "\nAddress = " + peer.allowed_address + "\nDNS = " + body.dns + "\n\n[Peer]\nPublicKey = " + body.server_public_key + "\nAllowedIPs = " + client_allowed_ips + "\nEndpoint = " + body.endpoint + "\nPersistentKeepalive = " + str(body.persistent_keepalive) + "\n"
     record_event(db, user.username, "linux_peer.config.issue", "linux_peer", str(peer.id), details={"server_id": server_id, "format": "wireguard-conf"})
     db.commit()
     return Response(content=config, media_type="text/plain; charset=utf-8", headers={"Cache-Control": "no-store, no-cache, must-revalidate, private", "Pragma": "no-cache", "X-Content-Type-Options": "nosniff", "Content-Disposition": 'attachment; filename="linux-peer-'+str(peer.id)+'.conf"'})

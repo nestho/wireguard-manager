@@ -54,6 +54,12 @@ def _router_peer_path(peer_id: str) -> str:
         raise RouterConnectionError("RouterOS returned an invalid peer identifier")
     return f"/interface/wireguard/peers/{peer_id}"
 
+def _access_networks(values):
+    try:
+        return normalize_networks(values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
 def _router(db: Session, router_id: int) -> Router:
     item = db.get(Router, router_id)
     if not item:
@@ -64,7 +70,7 @@ def _router(db: Session, router_id: int) -> Router:
 async def preview_peer(router_id: int, body: PeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
-    networks = normalize_networks(body.access_networks)
+    networks = _access_networks(body.access_networks)
     if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
         raise HTTPException(422, "Destination network IP family must match the peer address")
     for peer in db.query(Peer).filter(Peer.router_id == router_id, Peer.status != "revoked").all():

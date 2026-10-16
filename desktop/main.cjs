@@ -47,7 +47,7 @@ ipcMain.handle("wgm:request", async (_event, input) => {
     if (typeof input.token !== "string" || input.token.length > 8192) throw new Error("Invalid session token.");
     headers.Authorization = "Bearer " + input.token;
   }
-  const options = { method, headers, redirect: "error", signal: AbortSignal.timeout(20000) };
+  const options = { method, headers, redirect: "error", signal: AbortSignal.timeout(90000) };
   if (method === "POST") {
     const body = input.body;
     if (!body || typeof body.username !== "string" || typeof body.password !== "string") throw new Error("Invalid login payload.");

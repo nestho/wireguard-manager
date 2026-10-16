@@ -34,6 +34,12 @@ def _address(value: str) -> str:
         raise HTTPException(422, "Peer prefix is too broad; use IPv4 /24-/32 or IPv6 /64-/128")
     return str(addr)
 
+def _access_networks(values):
+    try:
+        return normalize_networks(values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
 def _keypair():
     private = X25519PrivateKey.generate()
     return (base64.b64encode(private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())).decode(),
@@ -82,7 +88,7 @@ async def discover_remote_peers(server_id: int, db: Session = Depends(get_db), u
 async def preview_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     server = _server(db, server_id)
     address = _address(body.allowed_address)
-    networks = normalize_networks(body.access_networks)
+    networks = _access_networks(body.access_networks)
     if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
         raise HTTPException(422, "Destination network IP family must match the peer address")
     _iface(body.interface_name)

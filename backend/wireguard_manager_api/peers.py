@@ -63,6 +63,9 @@ def _router(db: Session, router_id: int) -> Router:
 async def preview_peer(router_id: int, body: PeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
+    networks = normalize_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
     for peer in db.query(Peer).filter(Peer.router_id == router_id, Peer.status != "revoked").all():
         if _overlaps(address, peer.allowed_address):
             raise HTTPException(409, "Address overlaps an allocation in the local inventory")

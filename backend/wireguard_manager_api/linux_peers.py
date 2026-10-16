@@ -221,9 +221,12 @@ async def update_peer_access_control(server_id: int, peer_id: int, body: AccessC
         if exists:
             rule_lines = [line for line in full_rules.splitlines() if line.strip().endswith(" accept") or line.strip().endswith(" drop")]
             apply_rules = f"flush chain inet {table} forward_guard\\n" + "\\n".join(rule_lines) + "\\n"
-            async with await conn.start_sftp_client() as sftp2:
+            sftp2 = await conn.start_sftp_client()
+            try:
                 async with sftp2.open(temp_path, "w") as handle:
                     await handle.write(apply_rules)
+            finally:
+                sftp2.exit()
         await _run(conn, "sudo -n nft -c -f " + shlex.quote(temp_path))
         # Save the full declarative file separately so boot-time include replays the same ACL.
         sftp3 = await conn.start_sftp_client()

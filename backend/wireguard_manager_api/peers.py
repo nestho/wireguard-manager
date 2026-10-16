@@ -233,6 +233,8 @@ def _client_config(peer: Peer, body: ClientConfigRequest, db: Session, user: Use
         private_key = decrypt_secret(peer.private_key_ciphertext)
     except RuntimeError as exc:
         raise HTTPException(500, "Peer key cannot be decrypted; verify the configured encryption key and backups") from exc
+    access_networks = __import__("json").loads(peer.access_networks_json or "[]")
+    client_allowed_ips = ", ".join(access_networks) if access_networks else body.allowed_ips
     config = (
         "[Interface]\n"
         f"PrivateKey = {private_key}\n"

@@ -100,7 +100,7 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         raise HTTPException(503, "Live peer mutations are disabled by deployment policy")
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
-    networks = normalize_networks(body.access_networks)
+    networks = _access_networks(body.access_networks)
     if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
         raise HTTPException(422, "Destination network IP family must match the peer address; dual-stack peers need separate addresses")
     await preview_peer(router_id, body, db, user)
@@ -165,7 +165,7 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
     """Apply a per-peer destination allowlist on RouterOS. Empty list means deny all forwarded destinations."""
     import json
     try:
-        networks = normalize_networks(body.access_networks)
+        networks = _access_networks(body.access_networks)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
     item = _router(db, router_id)

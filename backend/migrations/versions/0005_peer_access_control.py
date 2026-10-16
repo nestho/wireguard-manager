@@ -10,7 +10,11 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("peers", sa.Column("access_networks_json", sa.Text(), nullable=False, server_default="[]"))
     op.add_column("linux_peers", sa.Column("access_networks_json", sa.Text(), nullable=False, server_default="[]"))
+    op.add_column("peers", sa.Column("access_control_applied", sa.Boolean(), nullable=False, server_default=sa.false()))
+    op.add_column("linux_peers", sa.Column("access_control_applied", sa.Boolean(), nullable=False, server_default=sa.false()))
 
 def downgrade() -> None:
+    op.drop_column("linux_peers", "access_control_applied")
+    op.drop_column("peers", "access_control_applied")
     op.drop_column("linux_peers", "access_networks_json")
     op.drop_column("peers", "access_networks_json")

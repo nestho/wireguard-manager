@@ -75,8 +75,28 @@ def atomic_write(path: Path, content: str) -> None:
             pass
 
 
-def apply(peer_id: int, address: str, raw_networks: list[str]) -> None:
+def apply(peer_id: int, interface: str, public_key: str, address: str, raw_networks: list[str]) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", interface):
+        raise ValueError("invalid WireGuard interface name")
+    if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", public_key):
+        raise ValueError("invalid WireGuard public key")
     peer_ip = ipaddress.ip_interface(address).ip
+    if peer_ip.is_loopback or peer_ip.is_link_local or peer_ip.is_multicast or peer_ip.is_unspecified:
+        raise ValueError("special-purpose peer addresses are not permitted")
+    allowed_output = run(["wg", "show", interface, "allowed-ips"]).stdout
+    peer_found = False
+    for line in allowed_output.splitlines():
+        columns = line.split(None, 1)
+        if len(columns) != 2 or columns[0] != public_key:
+            continue
+        for raw_allowed in columns[1].split(","):
+            try:
+                if peer_ip in ipaddress.ip_network(raw_allowed.strip(), strict=False):
+                    peer_found = True
+            except ValueError:
+                continue
+    if not peer_found:
+        raise ValueError("peer public key and address do not match an active WireGuard peer")
     networks = checked_networks(raw_networks, peer_ip.version)
     if not CONFIG.is_file() or not re.search(r'include\s+.*nftables\.d/(?:\*|[^\n]*\.nft)', CONFIG.read_text(encoding="utf-8")):
         raise RuntimeError("/etc/nftables.conf must include /etc/nftables.d/*.nft")
@@ -104,11 +124,13 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("apply")
     command.add_argument("peer_id", type=int)
+    command.add_argument("interface")
+    command.add_argument("public_key")
     command.add_argument("peer_address")
     command.add_argument("networks", nargs="*")
     args = parser.parse_args()
     try:
-        apply(args.peer_id, args.peer_address, args.networks)
+        apply(args.peer_id, args.interface, args.public_key, args.peer_address, args.networks)
     except (ValueError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
         print(f"wgm-acl-helper: {exc}", file=sys.stderr)
         return 1

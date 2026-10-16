@@ -160,6 +160,15 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         "allowed_address": peer.allowed_address, "access_networks": networks, "status": peer.status,
         "created_at": peer.created_at.isoformat(), "private_key_returned": False}
 
+@router.get("/{peer_id}/access-control")
+def get_peer_access_control(router_id: int, peer_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    peer = db.query(Peer).filter(Peer.id == peer_id, Peer.router_id == router_id).first()
+    if not peer:
+        raise HTTPException(404, "Peer not found")
+    import json
+    networks = json.loads(peer.access_networks_json or "[]")
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforcement": "routeros-firewall" if peer.status == "active" else "not-active"}
+
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(router_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     """Apply a per-peer destination allowlist on RouterOS. Empty list means deny all forwarded destinations."""

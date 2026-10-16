@@ -53,7 +53,7 @@ def _iface(value: str):
 def _peer_view(peer: LinuxPeer):
     import json
     return {"id": peer.id, "server_id": peer.server_id, "interface_name": peer.interface_name, "name": peer.name,
-            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": json.loads(peer.access_networks_json or "[]"), "status": peer.status,
+            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": json.loads(peer.access_networks_json or "[]"), "access_control_applied": peer.access_control_applied, "status": peer.status,
             "created_at": peer.created_at.isoformat()}
 
 @router.get("")
@@ -195,7 +195,7 @@ def get_peer_access_control(server_id: int, peer_id: int, db: Session = Depends(
         raise HTTPException(404, "Linux peer not found")
     import json
     networks = json.loads(peer.access_networks_json or "[]")
-    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforcement": "linux-nftables" if peer.status == "active" else "not-active"}
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforced": peer.access_control_applied, "enforcement": "linux-nftables" if peer.access_control_applied else "needs-reconciliation"}
 
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(server_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
@@ -226,6 +226,7 @@ async def update_peer_access_control(server_id: int, peer_id: int, body: AccessC
         conn.close()
         await conn.wait_closed()
     peer.access_networks_json = json.dumps(networks)
+    peer.access_control_applied = True
     record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), details={"server_id": server_id, "network_count": len(networks), "default_deny": True})
     db.commit()
     return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "linux-nftables"}

@@ -212,58 +212,12 @@ async def update_peer_access_control(server_id: int, peer_id: int, body: AccessC
     source = ipaddress.ip_interface(peer.allowed_address).ip
     if any(ipaddress.ip_network(network).version != source.version for network in networks):
         raise HTTPException(422, "Destination network IP family must match this peer address; dual-stack peers need separate IPv4 and IPv6 addresses")
-    table = f"wgm_acl_{peer.id}"
-    full_rules = nft_rules(peer.id, peer.allowed_address, networks)
+    command = "sudo -n /usr/local/sbin/wgm-acl-helper apply " + shlex.quote(str(peer.id)) + " " + shlex.quote(str(peer.allowed_address))
+    if networks:
+        command += " " + " ".join(shlex.quote(network) for network in networks)
     conn = await _connect(server)
-    temp_path = f"/tmp/{table}.nft"
-    target_path = f"/etc/nftables.d/{table}.nft"
     try:
-        # Refuse to claim persistence unless nftables.conf loads the managed drop-in directory.
-        await _run(conn, "sudo -n test -r /etc/nftables.conf && sudo -n grep -Eq 'include[[:space:]]+.*nftables.d/.*\\.nft|include[[:space:]]+.*nftables.d/\\*' /etc/nftables.conf")
-        await _run(conn, "sudo -n test -d /etc/nftables.d")
-        sftp = await conn.start_sftp_client()
-        try:
-            async with sftp.open(temp_path, "w") as handle:
-                await handle.write(full_rules)
-        finally:
-            sftp.exit()
-        # The transaction script flushes the existing managed chain atomically when it already exists.
-        exists = True
-        try:
-            await _run(conn, "sudo -n nft list table inet " + table)
-        except HTTPException:
-            exists = False
-        apply_rules = full_rules
-        if exists:
-            rule_lines = [line for line in full_rules.splitlines() if line.strip().endswith(" accept") or line.strip().endswith(" drop")]
-            apply_rules = f"flush chain inet {table} forward_guard\\n" + "\\n".join(rule_lines) + "\\n"
-            sftp2 = await conn.start_sftp_client()
-            try:
-                async with sftp2.open(temp_path, "w") as handle:
-                    await handle.write(apply_rules)
-            finally:
-                sftp2.exit()
-        await _run(conn, "sudo -n nft -c -f " + shlex.quote(temp_path))
-        # Save the full declarative file separately so boot-time include replays the same ACL.
-        sftp3 = await conn.start_sftp_client()
-        try:
-            async with sftp3.open(temp_path, "w") as handle:
-                await handle.write(full_rules)
-        finally:
-            sftp3.exit()
-        await _run(conn, "sudo -n install -o root -g root -m 0644 " + shlex.quote(temp_path) + " " + shlex.quote(target_path))
-        # Apply transaction from the full file on first install, or a flush-chain transaction on update.
-        if exists:
-            update_path = f"/tmp/{table}-update.nft"
-            sftp4 = await conn.start_sftp_client()
-            try:
-                async with sftp4.open(update_path, "w") as handle:
-                    await handle.write(apply_rules)
-            finally:
-                sftp4.exit()
-            await _run(conn, "sudo -n nft -f " + shlex.quote(update_path))
-        else:
-            await _run(conn, "sudo -n nft -f " + shlex.quote(target_path))
+        await _run(conn, command, timeout=30)
     except HTTPException as exc:
         record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), outcome="failed", details={"server_id": server_id, "network_count": len(networks)})
         db.commit()

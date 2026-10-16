@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from .audit import record_event
+from .access_control import normalize_networks, routeros_rule_plan\nfrom .audit import record_event
 from .config import get_settings
 from .db import get_db
 from .dependencies import current_user, require_roles
@@ -105,10 +105,10 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         remote_id = created.get(".id")
         if not remote_id:
             raise HTTPException(502, "RouterOS may have created a peer but returned no identifier; inspect the router before retrying")
-        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name, public_key=public_key, private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, endpoint=body.endpoint, status="active")
+        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name, public_key=public_key, private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, endpoint=body.endpoint, access_networks_json=__import__("json").dumps(normalize_networks(body.access_networks)), status="active")
         db.add(peer)
         db.flush()
-        record_event(db, user.username, "peer.create", "peer", str(peer.id), details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address, "router_peer_id": str(remote_id)})
+        record_event(db, user.username, "peer.create", "peer", str(peer.id), details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address, "access_networks": normalize_networks(body.access_networks), "router_peer_id": str(remote_id)})
         db.commit()
         return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key, "allowed_address": peer.allowed_address, "status": peer.status, "created_at": peer.created_at.isoformat(), "private_key_returned": False}
     except Exception as exc:

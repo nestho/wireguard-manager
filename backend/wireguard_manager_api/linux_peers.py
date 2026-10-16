@@ -212,7 +212,7 @@ async def update_peer_access_control(server_id: int, peer_id: int, body: AccessC
     source = ipaddress.ip_interface(peer.allowed_address).ip
     if any(ipaddress.ip_network(network).version != source.version for network in networks):
         raise HTTPException(422, "Destination network IP family must match this peer address; dual-stack peers need separate IPv4 and IPv6 addresses")
-    command = "sudo -n /usr/local/sbin/wgm-acl-helper apply " + shlex.quote(str(peer.id)) + " " + shlex.quote(str(peer.allowed_address))
+    command = "sudo -n /usr/local/sbin/wgm-acl-helper apply " + shlex.quote(str(peer.id)) + " " + shlex.quote(peer.interface_name) + " " + shlex.quote(peer.public_key) + " " + shlex.quote(str(peer.allowed_address))
     if networks:
         command += " " + " ".join(shlex.quote(network) for network in networks)
     conn = await _connect(server)

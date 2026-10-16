@@ -166,15 +166,16 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
     if not peer or not peer.router_peer_id:
         raise HTTPException(404, "Active synchronized peer not found")
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
+    source = str(ipaddress.ip_interface(peer.allowed_address).ip)
     if any(ipaddress.ip_network(network).version != ipaddress.ip_address(source).version for network in networks):
         raise HTTPException(422, "Destination network IP family must match the peer address")
     marker = f"wgm-acl-peer-{peer.id}-"
     firewall_path = "/ip/firewall/filter" if ipaddress.ip_address(source).version == 4 else "/ipv6/firewall/filter"
+    created_ids = []
     try:
         existing = await client.get(firewall_path)
         existing = existing if isinstance(existing, list) else [existing]
         plan = routeros_rule_plan(peer.id, peer.allowed_address, networks)
-        created_ids = []
         for rule in reversed(plan):
             result = await client.post(firewall_path, {**rule, "place-before": "0"})
             if result.get(".id"):
@@ -183,9 +184,18 @@ async def update_peer_access_control(router_id: int, peer_id: int, body: AccessC
             if str(rule.get("comment", "")).startswith(marker) and str(rule.get(".id")) not in created_ids:
                 await client.delete(firewall_path + "/" + str(rule[".id"]))
     except RouterConnectionError as exc:
-        record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), outcome="failed", details={"router_id": router_id, "network_count": len(networks)})
+        cleanup_failed = False
+        for created_id in created_ids:
+            try:
+                await client.delete(firewall_path + "/" + created_id)
+            except RouterConnectionError:
+                cleanup_failed = True
+        record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id),
+            outcome="critical" if cleanup_failed else "failed",
+            details={"router_id": router_id, "network_count": len(networks), "new_rule_rollback_failed": cleanup_failed})
         db.commit()
-        raise HTTPException(502, "RouterOS ACL application was not confirmed; inspect firewall rules before retrying") from exc
+        message = "RouterOS ACL failed and rollback could not be confirmed; inspect firewall rules immediately" if cleanup_failed else "RouterOS ACL application failed; new rules were rolled back where possible"
+        raise HTTPException(502, message) from exc
     peer.access_networks_json = json.dumps(networks)
     record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), details={"router_id": router_id, "network_count": len(networks), "default_deny": True})
     db.commit()

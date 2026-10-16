@@ -67,8 +67,7 @@
         "deb"
       ],
       "category": "Network;Security;"
-    },
-    "desktopName": "wireguard-manager"
+    }
   },
   "description": "Cross-platform WireGuard Manager read-only RouterOS audit desktop client",
   "author": {

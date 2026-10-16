@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from .audit import record_event
+from .access_control import normalize_networks, nft_rules\nfrom .audit import record_event
 from .config import get_settings
 from .db import get_db
 from .dependencies import current_user, require_roles
@@ -137,7 +137,7 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
         conn.close()
         await conn.wait_closed()
     peer = LinuxPeer(server_id=server_id, interface_name=iface, name=body.name, public_key=public_key,
-        private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, status="active")
+        private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, access_networks_json=__import__("json").dumps(normalize_networks(body.access_networks)), status="active")
     db.add(peer)
     try:
         db.flush()
@@ -156,6 +156,82 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
             await rollback.wait_closed()
         raise HTTPException(500, "Database persistence failed; remote peer rollback was attempted") from exc
     return {**_peer_view(peer), "private_key_returned": False, "client_config_available": True}
+
+@router.put("/{peer_id}/access-control")
+async def update_peer_access_control(server_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    """Apply a per-peer destination allowlist using nftables; empty list means deny all forwarded destinations."""
+    import json
+    try:
+        networks = normalize_networks(body.get("access_networks", []))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    server = _server(db, server_id)
+    peer = db.query(LinuxPeer).filter_by(id=peer_id, server_id=server_id, status="active").first()
+    if not peer:
+        raise HTTPException(404, "Active Linux peer not found")
+    source = ipaddress.ip_interface(peer.allowed_address).ip
+    if any(ipaddress.ip_network(network).version != source.version for network in networks):
+        raise HTTPException(422, "Destination network IP family must match this peer address; dual-stack peers need separate IPv4 and IPv6 addresses")
+    table = f"wgm_acl_{peer.id}"
+    full_rules = nft_rules(peer.id, peer.allowed_address, networks)
+    conn = await _connect(server)
+    temp_path = f"/tmp/{table}.nft"
+    target_path = f"/etc/nftables.d/{table}.nft"
+    try:
+        # Refuse to claim persistence unless nftables.conf loads the managed drop-in directory.
+        await _run(conn, "sudo -n test -r /etc/nftables.conf && sudo -n grep -Eq 'include[[:space:]]+.*nftables.d/.*\\.nft|include[[:space:]]+.*nftables.d/\\*' /etc/nftables.conf")
+        await _run(conn, "sudo -n test -d /etc/nftables.d")
+        sftp = await conn.start_sftp_client()
+        try:
+            async with sftp.open(temp_path, "w") as handle:
+                await handle.write(full_rules)
+        finally:
+            sftp.exit()
+        # The transaction script flushes the existing managed chain atomically when it already exists.
+        exists = True
+        try:
+            await _run(conn, "sudo -n nft list table inet " + table)
+        except HTTPException:
+            exists = False
+        apply_rules = full_rules
+        if exists:
+            rule_lines = [line for line in full_rules.splitlines() if line.strip().endswith(" accept") or line.strip().endswith(" drop")]
+            apply_rules = f"flush chain inet {table} forward_guard\\n" + "\\n".join(rule_lines) + "\\n"
+            async with await conn.start_sftp_client() as sftp2:
+                async with sftp2.open(temp_path, "w") as handle:
+                    await handle.write(apply_rules)
+        await _run(conn, "sudo -n nft -c -f " + shlex.quote(temp_path))
+        # Save the full declarative file separately so boot-time include replays the same ACL.
+        sftp3 = await conn.start_sftp_client()
+        try:
+            async with sftp3.open(temp_path, "w") as handle:
+                await handle.write(full_rules)
+        finally:
+            sftp3.exit()
+        await _run(conn, "sudo -n install -o root -g root -m 0644 " + shlex.quote(temp_path) + " " + shlex.quote(target_path))
+        # Apply transaction from the full file on first install, or a flush-chain transaction on update.
+        if exists:
+            update_path = f"/tmp/{table}-update.nft"
+            sftp4 = await conn.start_sftp_client()
+            try:
+                async with sftp4.open(update_path, "w") as handle:
+                    await handle.write(apply_rules)
+            finally:
+                sftp4.exit()
+            await _run(conn, "sudo -n nft -f " + shlex.quote(update_path))
+        else:
+            await _run(conn, "sudo -n nft -f " + shlex.quote(target_path))
+    except HTTPException as exc:
+        record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), outcome="failed", details={"server_id": server_id, "network_count": len(networks)})
+        db.commit()
+        raise HTTPException(502, "Linux ACL was not confirmed; inspect nftables state and the persistent drop-in before retrying") from exc
+    finally:
+        conn.close()
+        await conn.wait_closed()
+    peer.access_networks_json = json.dumps(networks)
+    record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), details={"server_id": server_id, "network_count": len(networks), "default_deny": True})
+    db.commit()
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "linux-nftables"}
 
 @router.delete("/{peer_id}")
 async def revoke_peer(server_id: int, peer_id: int, confirm: bool = False, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):

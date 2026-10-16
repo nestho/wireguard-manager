@@ -242,7 +242,7 @@ def _client_config(peer: Peer, body: ClientConfigRequest, db: Session, user: Use
         f"DNS = {body.dns}\n\n"
         "[Peer]\n"
         f"PublicKey = {body.server_public_key}\n"
-        f"AllowedIPs = {body.allowed_ips}\n"
+        f"AllowedIPs = {client_allowed_ips}\n"
         f"Endpoint = {body.endpoint}\n"
         f"PersistentKeepalive = {body.persistent_keepalive}\n"
     )

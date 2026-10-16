@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Root-owned, argument-validated nftables ACL helper for WireGuard Manager.
+
+Install this file as /usr/local/sbin/wgm-acl-helper owned by root:root, mode 0755.
+The API account should receive sudo permission only for this fixed helper.
+"""
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+NFT = "/usr/sbin/nft"
+CONFIG = Path("/etc/nftables.conf")
+DROPIN_DIR = Path("/etc/nftables.d")
+MAX_NETWORKS = 128
+
+
+def checked_networks(raw_values: list[str], family: int) -> list[str]:
+    if len(raw_values) > MAX_NETWORKS:
+        raise ValueError(f"at most {MAX_NETWORKS} networks are permitted")
+    result: list[str] = []
+    for raw in raw_values:
+        network = ipaddress.ip_network(raw, strict=False)
+        if network.version != family:
+            raise ValueError("destination network family must match peer address")
+        if network.prefixlen == 0 or network.is_loopback or network.is_link_local or network.is_multicast:
+            raise ValueError(f"special-purpose or default destination network is not permitted: {network}")
+        canonical = str(network)
+        if canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def render(peer_id: int, address: str, networks: list[str]) -> tuple[str, str, str]:
+    if peer_id < 1:
+        raise ValueError("peer id must be positive")
+    peer_ip = ipaddress.ip_interface(address).ip
+    table = f"wgm_acl_{peer_id}"
+    family = "ip" if peer_ip.version == 4 else "ip6"
+    lines = [f"table inet {table} {{", "  chain forward_guard {", "    type filter hook forward priority -10; policy accept;"]
+    for raw in networks:
+        network = ipaddress.ip_network(raw, strict=False)
+        lines.append(f"    {family} saddr {peer_ip} {family} daddr {network} accept")
+    lines.append(f"    {family} saddr {peer_ip} drop")
+    lines.extend(["  }", "}"])
+    full = "\n".join(lines) + "\n"
+    rules = [line for line in lines if line.strip().endswith(" accept") or line.strip().endswith(" drop")]
+    transaction = f"flush chain inet {table} forward_guard\n" + "\n".join(rules) + "\n"
+    return table, full, transaction
+
+
+def run(args: list[str], *, input_text: str | None = None, check: bool = True):
+    return subprocess.run(args, input=input_text, text=True, capture_output=True, check=check)
+
+
+def atomic_write(path: Path, content: str) -> None:
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_name, 0o644)
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+
+
+def apply(peer_id: int, interface: str, public_key: str, address: str, raw_networks: list[str]) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", interface):
+        raise ValueError("invalid WireGuard interface name")
+    if not re.fullmatch(r"[A-Za-z0-9+/]{43}=", public_key):
+        raise ValueError("invalid WireGuard public key")
+    peer_ip = ipaddress.ip_interface(address).ip
+    if peer_ip.is_loopback or peer_ip.is_link_local or peer_ip.is_multicast or peer_ip.is_unspecified:
+        raise ValueError("special-purpose peer addresses are not permitted")
+    allowed_output = run(["wg", "show", interface, "allowed-ips"]).stdout
+    peer_found = False
+    for line in allowed_output.splitlines():
+        columns = line.split(None, 1)
+        if len(columns) != 2 or columns[0] != public_key:
+            continue
+        for raw_allowed in columns[1].split(","):
+            try:
+                if peer_ip in ipaddress.ip_network(raw_allowed.strip(), strict=False):
+                    peer_found = True
+            except ValueError:
+                continue
+    if not peer_found:
+        raise ValueError("peer public key and address do not match an active WireGuard peer")
+    networks = checked_networks(raw_networks, peer_ip.version)
+    if not CONFIG.is_file() or not re.search(r'include\s+.*nftables\.d/(?:\*|[^\n]*\.nft)', CONFIG.read_text(encoding="utf-8")):
+        raise RuntimeError("/etc/nftables.conf must include /etc/nftables.d/*.nft")
+    if not DROPIN_DIR.is_dir():
+        raise RuntimeError("/etc/nftables.d does not exist")
+    table, full, transaction = render(peer_id, address, networks)
+    exists = run([NFT, "list", "table", "inet", table], check=False).returncode == 0
+    batch = transaction if exists else full
+    run([NFT, "-c", "-f", "-"], input_text=batch)
+    target = DROPIN_DIR / f"{table}.nft"
+    previous = target.read_text(encoding="utf-8") if target.exists() else None
+    atomic_write(target, full)
+    try:
+        run([NFT, "-f", "-"], input_text=batch)
+    except Exception:
+        if previous is None:
+            target.unlink(missing_ok=True)
+        else:
+            atomic_write(target, previous)
+        raise
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    command = sub.add_parser("apply")
+    command.add_argument("peer_id", type=int)
+    command.add_argument("interface")
+    command.add_argument("public_key")
+    command.add_argument("peer_address")
+    command.add_argument("networks", nargs="*")
+    args = parser.parse_args()
+    try:
+        apply(args.peer_id, args.interface, args.public_key, args.peer_address, args.networks)
+    except (ValueError, OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        print(f"wgm-acl-helper: {exc}", file=sys.stderr)
+        return 1
+    print("applied")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

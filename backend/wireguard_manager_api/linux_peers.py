@@ -11,13 +11,14 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from .access_control import normalize_networks
 from .audit import record_event
 from .config import get_settings
 from .db import get_db
 from .dependencies import current_user, require_roles
 from .linux_servers import _connect, _run, _server
 from .models import LinuxPeer, User
-from .schemas import ClientConfigRequest, LinuxPeerCreate
+from .schemas import AccessControlRequest, ClientConfigRequest, LinuxPeerCreate
 from .security import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/v1/linux-servers/{server_id}/peers", tags=["linux-peers"])
@@ -33,6 +34,12 @@ def _address(value: str) -> str:
         raise HTTPException(422, "Peer prefix is too broad; use IPv4 /24-/32 or IPv6 /64-/128")
     return str(addr)
 
+def _access_networks(values):
+    try:
+        return normalize_networks(values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
 def _keypair():
     private = X25519PrivateKey.generate()
     return (base64.b64encode(private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())).decode(),
@@ -44,8 +51,9 @@ def _iface(value: str):
     return value
 
 def _peer_view(peer: LinuxPeer):
+    import json
     return {"id": peer.id, "server_id": peer.server_id, "interface_name": peer.interface_name, "name": peer.name,
-            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "status": peer.status,
+            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": json.loads(peer.access_networks_json or "[]"), "access_control_applied": peer.access_control_applied, "status": peer.status,
             "created_at": peer.created_at.isoformat()}
 
 @router.get("")
@@ -80,6 +88,9 @@ async def discover_remote_peers(server_id: int, db: Session = Depends(get_db), u
 async def preview_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     server = _server(db, server_id)
     address = _address(body.allowed_address)
+    networks = _access_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
     _iface(body.interface_name)
     for peer in db.query(LinuxPeer).filter_by(server_id=server_id, status="active").all():
         if ipaddress.ip_interface(peer.allowed_address).network.overlaps(ipaddress.ip_interface(address).network):
@@ -137,7 +148,7 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
         conn.close()
         await conn.wait_closed()
     peer = LinuxPeer(server_id=server_id, interface_name=iface, name=body.name, public_key=public_key,
-        private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, status="active")
+        private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, access_networks_json=__import__("json").dumps(_access_networks(body.access_networks)), status="active")
     db.add(peer)
     try:
         db.flush()
@@ -155,7 +166,70 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
             rollback.close()
             await rollback.wait_closed()
         raise HTTPException(500, "Database persistence failed; remote peer rollback was attempted") from exc
-    return {**_peer_view(peer), "private_key_returned": False, "client_config_available": True}
+    try:
+        await update_peer_access_control(server_id, peer.id, AccessControlRequest(access_networks=body.access_networks), db, user)
+    except Exception as acl_exc:
+        # Best-effort fail-closed compensation: remove the peer if its firewall policy cannot be confirmed.
+        cleanup = await _connect(server)
+        try:
+            await _run(cleanup, "sudo -n wg set " + shlex.quote(iface) + " peer " + shlex.quote(public_key) + " remove")
+            await _run(cleanup, "sudo -n wg-quick save " + shlex.quote(iface), timeout=30)
+            peer.status = "revoked"
+            peer.private_key_ciphertext = None
+            record_event(db, user.username, "linux_peer.create.acl_rollback", "linux_peer", str(peer.id), outcome="failed", details={"server_id": server_id})
+            db.commit()
+        except Exception as cleanup_exc:
+            record_event(db, user.username, "linux_peer.create.acl_rollback_failed", "linux_peer", str(peer.id), outcome="critical", details={"server_id": server_id})
+            db.commit()
+            raise HTTPException(500, "ACL could not be confirmed and peer rollback failed; manually remove or isolate the peer") from cleanup_exc
+        finally:
+            cleanup.close()
+            await cleanup.wait_closed()
+        raise HTTPException(502, "ACL could not be confirmed; the new peer was revoked") from acl_exc
+    return {**_peer_view(peer), "access_networks": _access_networks(body.access_networks), "private_key_returned": False, "client_config_available": True}
+
+@router.get("/{peer_id}/access-control")
+def get_peer_access_control(server_id: int, peer_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    peer = db.query(LinuxPeer).filter_by(id=peer_id, server_id=server_id).first()
+    if not peer:
+        raise HTTPException(404, "Linux peer not found")
+    import json
+    networks = json.loads(peer.access_networks_json or "[]")
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforced": peer.access_control_applied, "enforcement": "linux-nftables" if peer.access_control_applied else "needs-reconciliation"}
+
+@router.put("/{peer_id}/access-control")
+async def update_peer_access_control(server_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    """Apply a per-peer destination allowlist using nftables; empty list means deny all forwarded destinations."""
+    import json
+    try:
+        networks = _access_networks(body.access_networks)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    server = _server(db, server_id)
+    peer = db.query(LinuxPeer).filter_by(id=peer_id, server_id=server_id, status="active").first()
+    if not peer:
+        raise HTTPException(404, "Active Linux peer not found")
+    source = ipaddress.ip_interface(peer.allowed_address).ip
+    if any(ipaddress.ip_network(network).version != source.version for network in networks):
+        raise HTTPException(422, "Destination network IP family must match this peer address; dual-stack peers need separate IPv4 and IPv6 addresses")
+    command = "sudo -n /usr/local/sbin/wgm-acl-helper apply " + shlex.quote(str(peer.id)) + " " + shlex.quote(peer.interface_name) + " " + shlex.quote(peer.public_key) + " " + shlex.quote(str(peer.allowed_address))
+    if networks:
+        command += " " + " ".join(shlex.quote(network) for network in networks)
+    conn = await _connect(server)
+    try:
+        await _run(conn, command, timeout=30)
+    except HTTPException as exc:
+        record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), outcome="failed", details={"server_id": server_id, "network_count": len(networks)})
+        db.commit()
+        raise HTTPException(502, "Linux ACL was not confirmed; inspect nftables state and the persistent drop-in before retrying") from exc
+    finally:
+        conn.close()
+        await conn.wait_closed()
+    peer.access_networks_json = json.dumps(networks)
+    peer.access_control_applied = True
+    record_event(db, user.username, "linux_peer.access_control.apply", "linux_peer", str(peer.id), details={"server_id": server_id, "network_count": len(networks), "default_deny": True})
+    db.commit()
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "linux-nftables"}
 
 @router.delete("/{peer_id}")
 async def revoke_peer(server_id: int, peer_id: int, confirm: bool = False, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
@@ -200,7 +274,9 @@ def download_config(server_id: int, peer_id: int, body: ClientConfigRequest, db:
         private_key = decrypt_secret(peer.private_key_ciphertext)
     except RuntimeError as exc:
         raise HTTPException(500, "Peer key cannot be decrypted; verify the encryption key and backups") from exc
-    config = "[Interface]\nPrivateKey = " + private_key + "\nAddress = " + peer.allowed_address + "\nDNS = " + body.dns + "\n\n[Peer]\nPublicKey = " + body.server_public_key + "\nAllowedIPs = " + body.allowed_ips + "\nEndpoint = " + body.endpoint + "\nPersistentKeepalive = " + str(body.persistent_keepalive) + "\n"
+    access_networks = __import__("json").loads(peer.access_networks_json or "[]")
+    client_allowed_ips = ", ".join(access_networks) if access_networks else body.allowed_ips
+    config = "[Interface]\nPrivateKey = " + private_key + "\nAddress = " + peer.allowed_address + "\nDNS = " + body.dns + "\n\n[Peer]\nPublicKey = " + body.server_public_key + "\nAllowedIPs = " + client_allowed_ips + "\nEndpoint = " + body.endpoint + "\nPersistentKeepalive = " + str(body.persistent_keepalive) + "\n"
     record_event(db, user.username, "linux_peer.config.issue", "linux_peer", str(peer.id), details={"server_id": server_id, "format": "wireguard-conf"})
     db.commit()
     return Response(content=config, media_type="text/plain; charset=utf-8", headers={"Cache-Control": "no-store, no-cache, must-revalidate, private", "Pragma": "no-cache", "X-Content-Type-Options": "nosniff", "Content-Disposition": 'attachment; filename="linux-peer-'+str(peer.id)+'.conf"'})

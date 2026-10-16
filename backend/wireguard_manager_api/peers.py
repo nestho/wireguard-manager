@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from .access_control import normalize_networks, routeros_rule_plan
 from .audit import record_event
 from .config import get_settings
 from .db import get_db
 from .dependencies import current_user, require_roles
 from .models import Peer, Router, User
 from .routeros import RouterOSClient, RouterConnectionError
-from .schemas import ClientConfigRequest, PeerCreate
+from .schemas import AccessControlRequest, ClientConfigRequest, PeerCreate
 from .security import decrypt_secret, encrypt_secret
 from io import BytesIO
 import qrcode
@@ -53,6 +54,12 @@ def _router_peer_path(peer_id: str) -> str:
         raise RouterConnectionError("RouterOS returned an invalid peer identifier")
     return f"/interface/wireguard/peers/{peer_id}"
 
+def _access_networks(values):
+    try:
+        return normalize_networks(values)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
 def _router(db: Session, router_id: int) -> Router:
     item = db.get(Router, router_id)
     if not item:
@@ -63,6 +70,9 @@ def _router(db: Session, router_id: int) -> Router:
 async def preview_peer(router_id: int, body: PeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
+    networks = _access_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
     for peer in db.query(Peer).filter(Peer.router_id == router_id, Peer.status != "revoked").all():
         if _overlaps(address, peer.allowed_address):
             raise HTTPException(409, "Address overlaps an allocation in the local inventory")
@@ -90,41 +100,123 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         raise HTTPException(503, "Live peer mutations are disabled by deployment policy")
     item = _router(db, router_id)
     address = validate_address(body.allowed_address)
-    # Re-run the complete preview immediately before a write to reduce TOCTOU risk.
+    networks = _access_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address; dual-stack peers need separate addresses")
     await preview_peer(router_id, body, db, user)
     private_key, public_key = generate_keypair()
     client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
     remote_id = None
+    peer = None
     try:
         created = await client.post("/interface/wireguard/peers", {
-            "interface": body.interface_name,
-            "public-key": public_key,
-            "allowed-address": address,
-            "comment": body.name,
+            "interface": body.interface_name, "public-key": public_key,
+            "allowed-address": address, "comment": body.name, "disabled": "true",
         })
         remote_id = created.get(".id")
         if not remote_id:
-            raise HTTPException(502, "RouterOS may have created a peer but returned no identifier; inspect the router before retrying")
-        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name, public_key=public_key, private_key_ciphertext=encrypt_secret(private_key), allowed_address=address, endpoint=body.endpoint, status="active")
+            raise HTTPException(502, "RouterOS may have created a disabled peer but returned no identifier; inspect the router")
+        peer = Peer(router_id=router_id, router_peer_id=str(remote_id), name=body.name,
+            public_key=public_key, private_key_ciphertext=encrypt_secret(private_key),
+            allowed_address=address, endpoint=body.endpoint,
+            access_networks_json=__import__("json").dumps(networks), status="active")
         db.add(peer)
         db.flush()
-        record_event(db, user.username, "peer.create", "peer", str(peer.id), details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address, "router_peer_id": str(remote_id)})
+        record_event(db, user.username, "peer.create", "peer", str(peer.id),
+            details={"router_id": router_id, "interface": body.interface_name, "allowed_address": address,
+                     "access_networks": networks, "router_peer_id": str(remote_id), "initially_disabled": True})
         db.commit()
-        return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key, "allowed_address": peer.allowed_address, "status": peer.status, "created_at": peer.created_at.isoformat(), "private_key_returned": False}
     except Exception as exc:
         db.rollback()
         if remote_id:
             try:
                 await client.delete(_router_peer_path(str(remote_id)))
             except Exception:
-                record_event(db, user.username, "peer.create.rollback_failed", "router", str(router_id), outcome="critical", details={"router_peer_id": str(remote_id)})
+                record_event(db, user.username, "peer.create.rollback_failed", "router", str(router_id),
+                    outcome="critical", details={"router_peer_id": str(remote_id)})
                 db.commit()
-                raise HTTPException(500, "Database persistence failed and router rollback could not be confirmed; reconcile this peer manually") from exc
+                raise HTTPException(500, "Peer creation failed and remote cleanup could not be confirmed; inspect RouterOS") from exc
         if isinstance(exc, HTTPException):
             raise
         if isinstance(exc, RouterConnectionError):
-            raise HTTPException(502, "RouterOS peer creation did not complete cleanly; a timed-out write may have applied, so inspect the router before retrying") from exc
-        raise HTTPException(500, "Peer creation failed and the router rollback was attempted") from exc
+            raise HTTPException(502, "RouterOS peer creation did not complete cleanly; inspect the router before retrying") from exc
+        raise HTTPException(500, "Peer creation failed and remote cleanup was attempted") from exc
+
+    # ACL is installed while the peer remains disabled; only activate after successful enforcement.
+    try:
+        await update_peer_access_control(router_id, peer.id, AccessControlRequest(access_networks=networks), db, user)
+        await client.patch(_router_peer_path(str(remote_id)), {"disabled": "false"})
+    except Exception as exc:
+        peer.status = "pending"
+        record_event(db, user.username, "peer.create.acl_or_enable_failed", "peer", str(peer.id),
+            outcome="failed", details={"router_id": router_id, "peer_remains_disabled": True})
+        db.commit()
+        if isinstance(exc, HTTPException):
+            raise HTTPException(502, "Peer remains disabled because ACL application or activation was not confirmed; inspect RouterOS before retrying") from exc
+        raise HTTPException(502, "Peer remains disabled because ACL application or activation was not confirmed") from exc
+    peer.status = "active"
+    db.commit()
+    return {"id": peer.id, "router_id": router_id, "name": peer.name, "public_key": peer.public_key,
+        "allowed_address": peer.allowed_address, "access_networks": networks, "status": peer.status,
+        "created_at": peer.created_at.isoformat(), "private_key_returned": False}
+
+@router.get("/{peer_id}/access-control")
+def get_peer_access_control(router_id: int, peer_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    peer = db.query(Peer).filter(Peer.id == peer_id, Peer.router_id == router_id).first()
+    if not peer:
+        raise HTTPException(404, "Peer not found")
+    import json
+    networks = json.loads(peer.access_networks_json or "[]")
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": not bool(networks), "enforced": peer.access_control_applied, "enforcement": "routeros-firewall" if peer.access_control_applied else "needs-reconciliation"}
+
+@router.put("/{peer_id}/access-control")
+async def update_peer_access_control(router_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    """Apply a per-peer destination allowlist on RouterOS. Empty list means deny all forwarded destinations."""
+    import json
+    try:
+        networks = _access_networks(body.access_networks)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    item = _router(db, router_id)
+    peer = db.query(Peer).filter(Peer.id == peer_id, Peer.router_id == router_id, Peer.status == "active").first()
+    if not peer or not peer.router_peer_id:
+        raise HTTPException(404, "Active synchronized peer not found")
+    client = RouterOSClient(item.host, item.port, item.username, item.credential_ciphertext, item.tls_verify)
+    source = str(ipaddress.ip_interface(peer.allowed_address).ip)
+    if any(ipaddress.ip_network(network).version != ipaddress.ip_address(source).version for network in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
+    marker = f"wgm-acl-peer-{peer.id}-"
+    firewall_path = "/ip/firewall/filter" if ipaddress.ip_address(source).version == 4 else "/ipv6/firewall/filter"
+    created_ids = []
+    try:
+        existing = await client.get(firewall_path)
+        existing = existing if isinstance(existing, list) else [existing]
+        plan = routeros_rule_plan(peer.id, peer.allowed_address, networks)
+        for rule in reversed(plan):
+            result = await client.post(firewall_path, {**rule, "place-before": "0"})
+            if result.get(".id"):
+                created_ids.append(str(result[".id"]))
+        for rule in existing:
+            if str(rule.get("comment", "")).startswith(marker) and str(rule.get(".id")) not in created_ids:
+                await client.delete(firewall_path + "/" + str(rule[".id"]))
+    except RouterConnectionError as exc:
+        cleanup_failed = False
+        for created_id in created_ids:
+            try:
+                await client.delete(firewall_path + "/" + created_id)
+            except RouterConnectionError:
+                cleanup_failed = True
+        record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id),
+            outcome="critical" if cleanup_failed else "failed",
+            details={"router_id": router_id, "network_count": len(networks), "new_rule_rollback_failed": cleanup_failed})
+        db.commit()
+        message = "RouterOS ACL failed and rollback could not be confirmed; inspect firewall rules immediately" if cleanup_failed else "RouterOS ACL application failed; new rules were rolled back where possible"
+        raise HTTPException(502, message) from exc
+    peer.access_networks_json = json.dumps(networks)
+    peer.access_control_applied = True
+    record_event(db, user.username, "peer.access_control.apply", "peer", str(peer.id), details={"router_id": router_id, "network_count": len(networks), "default_deny": True})
+    db.commit()
+    return {"peer_id": peer.id, "access_networks": networks, "default_deny": True, "enforcement": "routeros-firewall"}
 
 @router.delete("/{peer_id}", status_code=200)
 async def revoke_peer(router_id: int, peer_id: int, confirm: bool = False, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
@@ -171,6 +263,8 @@ def _client_config(peer: Peer, body: ClientConfigRequest, db: Session, user: Use
         private_key = decrypt_secret(peer.private_key_ciphertext)
     except RuntimeError as exc:
         raise HTTPException(500, "Peer key cannot be decrypted; verify the configured encryption key and backups") from exc
+    access_networks = __import__("json").loads(peer.access_networks_json or "[]")
+    client_allowed_ips = ", ".join(access_networks) if access_networks else body.allowed_ips
     config = (
         "[Interface]\n"
         f"PrivateKey = {private_key}\n"
@@ -178,7 +272,7 @@ def _client_config(peer: Peer, body: ClientConfigRequest, db: Session, user: Use
         f"DNS = {body.dns}\n\n"
         "[Peer]\n"
         f"PublicKey = {body.server_public_key}\n"
-        f"AllowedIPs = {body.allowed_ips}\n"
+        f"AllowedIPs = {client_allowed_ips}\n"
         f"Endpoint = {body.endpoint}\n"
         f"PersistentKeepalive = {body.persistent_keepalive}\n"
     )

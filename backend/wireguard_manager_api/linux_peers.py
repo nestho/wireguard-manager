@@ -155,7 +155,27 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
             rollback.close()
             await rollback.wait_closed()
         raise HTTPException(500, "Database persistence failed; remote peer rollback was attempted") from exc
-    return {**_peer_view(peer), "private_key_returned": False, "client_config_available": True}
+    try:
+        await update_peer_access_control(server_id, peer.id, {"access_networks": body.access_networks}, db, user)
+    except Exception as acl_exc:
+        # Best-effort fail-closed compensation: remove the peer if its firewall policy cannot be confirmed.
+        cleanup = await _connect(server)
+        try:
+            await _run(cleanup, "sudo -n wg set " + shlex.quote(iface) + " peer " + shlex.quote(public_key) + " remove")
+            await _run(cleanup, "sudo -n wg-quick save " + shlex.quote(iface), timeout=30)
+            peer.status = "revoked"
+            peer.private_key_ciphertext = None
+            record_event(db, user.username, "linux_peer.create.acl_rollback", "linux_peer", str(peer.id), outcome="failed", details={"server_id": server_id})
+            db.commit()
+        except Exception as cleanup_exc:
+            record_event(db, user.username, "linux_peer.create.acl_rollback_failed", "linux_peer", str(peer.id), outcome="critical", details={"server_id": server_id})
+            db.commit()
+            raise HTTPException(500, "ACL could not be confirmed and peer rollback failed; manually remove or isolate the peer") from cleanup_exc
+        finally:
+            cleanup.close()
+            await cleanup.wait_closed()
+        raise HTTPException(502, "ACL could not be confirmed; the new peer was revoked") from acl_exc
+    return {**_peer_view(peer), "access_networks": normalize_networks(body.access_networks), "private_key_returned": False, "client_config_available": True}
 
 @router.put("/{peer_id}/access-control")
 async def update_peer_access_control(server_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):

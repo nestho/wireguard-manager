@@ -17,7 +17,7 @@ from .db import get_db
 from .dependencies import current_user, require_roles
 from .linux_servers import _connect, _run, _server
 from .models import LinuxPeer, User
-from .schemas import ClientConfigRequest, LinuxPeerCreate
+from .schemas import AccessControlRequest, ClientConfigRequest, LinuxPeerCreate
 from .security import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/v1/linux-servers/{server_id}/peers", tags=["linux-peers"])
@@ -44,8 +44,9 @@ def _iface(value: str):
     return value
 
 def _peer_view(peer: LinuxPeer):
+    import json
     return {"id": peer.id, "server_id": peer.server_id, "interface_name": peer.interface_name, "name": peer.name,
-            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "status": peer.status,
+            "public_key": peer.public_key, "allowed_address": peer.allowed_address, "access_networks": json.loads(peer.access_networks_json or "[]"), "status": peer.status,
             "created_at": peer.created_at.isoformat()}
 
 @router.get("")
@@ -80,6 +81,9 @@ async def discover_remote_peers(server_id: int, db: Session = Depends(get_db), u
 async def preview_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     server = _server(db, server_id)
     address = _address(body.allowed_address)
+    networks = normalize_networks(body.access_networks)
+    if any(ipaddress.ip_network(n).version != ipaddress.ip_interface(address).version for n in networks):
+        raise HTTPException(422, "Destination network IP family must match the peer address")
     _iface(body.interface_name)
     for peer in db.query(LinuxPeer).filter_by(server_id=server_id, status="active").all():
         if ipaddress.ip_interface(peer.allowed_address).network.overlaps(ipaddress.ip_interface(address).network):
@@ -156,7 +160,7 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
             await rollback.wait_closed()
         raise HTTPException(500, "Database persistence failed; remote peer rollback was attempted") from exc
     try:
-        await update_peer_access_control(server_id, peer.id, {"access_networks": body.access_networks}, db, user)
+        await update_peer_access_control(server_id, peer.id, AccessControlRequest(access_networks=body.access_networks), db, user)
     except Exception as acl_exc:
         # Best-effort fail-closed compensation: remove the peer if its firewall policy cannot be confirmed.
         cleanup = await _connect(server)
@@ -178,11 +182,11 @@ async def create_peer(server_id: int, body: LinuxPeerCreate, db: Session = Depen
     return {**_peer_view(peer), "access_networks": normalize_networks(body.access_networks), "private_key_returned": False, "client_config_available": True}
 
 @router.put("/{peer_id}/access-control")
-async def update_peer_access_control(server_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+async def update_peer_access_control(server_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     """Apply a per-peer destination allowlist using nftables; empty list means deny all forwarded destinations."""
     import json
     try:
-        networks = normalize_networks(body.get("access_networks", []))
+        networks = normalize_networks(body.access_networks)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
     server = _server(db, server_id)

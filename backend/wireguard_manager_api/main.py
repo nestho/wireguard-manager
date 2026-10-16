@@ -8,6 +8,7 @@ from . import models
 from .auth import router as auth_router
 from .config import get_settings
 from .routers import router as routers_router
+from .router_audit import router as router_audit_router
 from .peers import router as peers_router
 from .admin import router as admin_router
 from .linux_servers import router as linux_servers_router
@@ -30,6 +31,7 @@ origins = [origin.strip() for origin in settings.allowed_origins.split(",") if o
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 app.include_router(auth_router)
 app.include_router(routers_router)
+app.include_router(router_audit_router)
 app.include_router(peers_router)
 app.include_router(admin_router)
 app.include_router(linux_servers_router)

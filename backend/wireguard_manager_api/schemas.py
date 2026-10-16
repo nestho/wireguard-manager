@@ -42,6 +42,7 @@ class RouterView(BaseModel):
     created_at: str
 
 class PeerCreate(BaseModel):
+    access_networks: list[str] = Field(default_factory=list, max_length=128)
     interface_name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
     name: str = Field(min_length=1, max_length=120)
     allowed_address: str = Field(min_length=3, max_length=64)
@@ -122,6 +123,7 @@ class LinuxInstallRequest(BaseModel):
     confirm: bool = False
 
 class LinuxPeerCreate(BaseModel):
+    access_networks: list[str] = Field(default_factory=list, max_length=128)
     interface_name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
     name: str = Field(min_length=1, max_length=120)
     allowed_address: str = Field(min_length=3, max_length=64)

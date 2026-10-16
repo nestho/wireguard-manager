@@ -9,6 +9,10 @@ function validateBaseUrl(value) {
   if (url.pathname !== "/" && url.pathname !== "") {
     throw new Error("API URL must be an origin only, without a path.");
   }
+  const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+  if (url.protocol === "http:" && !localHosts.has(url.hostname)) {
+    throw new Error("Use HTTPS for remote API connections; plain HTTP is allowed only for localhost.");
+  }
   return url.origin;
 }
 

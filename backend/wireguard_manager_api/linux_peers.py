@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from .access_control import normalize_networks, nft_rules
+from .access_control import normalize_networks
 from .audit import record_event
 from .config import get_settings
 from .db import get_db

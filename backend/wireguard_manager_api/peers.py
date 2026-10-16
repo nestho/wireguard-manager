@@ -12,7 +12,7 @@ from .db import get_db
 from .dependencies import current_user, require_roles
 from .models import Peer, Router, User
 from .routeros import RouterOSClient, RouterConnectionError
-from .schemas import ClientConfigRequest, PeerCreate
+from .schemas import AccessControlRequest, ClientConfigRequest, PeerCreate
 from .security import decrypt_secret, encrypt_secret
 from io import BytesIO
 import qrcode
@@ -154,11 +154,11 @@ async def create_peer(router_id: int, body: PeerCreate, db: Session = Depends(ge
         "created_at": peer.created_at.isoformat(), "private_key_returned": False}
 
 @router.put("/{peer_id}/access-control")
-async def update_peer_access_control(router_id: int, peer_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+async def update_peer_access_control(router_id: int, peer_id: int, body: AccessControlRequest, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     """Apply a per-peer destination allowlist on RouterOS. Empty list means deny all forwarded destinations."""
     import json
     try:
-        networks = normalize_networks(body.get("access_networks", []))
+        networks = normalize_networks(body.access_networks)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
     item = _router(db, router_id)

@@ -101,6 +101,36 @@ These are illustrative SVG mockups, not live monitoring data.
 
 Demo changes are kept in the current browser's local storage. Resetting browser storage or using another browser/device may restore the seed data. Never treat the demo as an authoritative inventory.
 
+## Desktop client and read-only pre-configuration audit
+
+A cross-platform Electron desktop client is available in this branch. It can be packaged as:
+- Windows: NSIS installer for x64 and arm64
+- macOS: DMG and ZIP (the CI build is unsigned unless signing credentials are configured)
+- Linux: AppImage and DEB
+
+Build locally on the matching operating system:
+```bash
+npm install
+npm run desktop:build
+```
+Artifacts are written to `release/`. GitHub Actions also provides a manual workflow and builds all three OS families on a `v*` tag; CI artifacts are available for 14 days. These initial packages are unsigned, so macOS Gatekeeper/Windows SmartScreen may warn.
+
+**Architecture note:** the installer is currently the desktop audit client, not a self-contained bundle of the FastAPI service. The API must already be running and reachable (locally or on a trusted management network). The app defaults to `http://127.0.0.1:8000`; use HTTPS for remote API connections.
+
+### Read-only RouterOS audit
+
+After logging in, choose a registered router and run the audit. The backend collects RouterOS resource/version, identity, packages, management services, input firewall rules, NAT rules, addresses, routes, WireGuard interfaces and peers using GET requests only. The report includes:
+- Severity-labelled findings, recommendations and supporting evidence
+- Collected versus unassessed checks (a permission/collection failure is never treated as a clean result)
+- JSON and HTML export
+- A "continue to configuration docs" action, or close the app
+
+The audit endpoint is `GET /api/v1/routers/{router_id}/audit` and requires an admin/operator bearer token. It records a summary in the manager's audit log but never writes RouterOS configuration. The desktop IPC layer only permits login, router-list, and this audit endpoint; it does not expose arbitrary HTTP requests to the renderer.
+
+**Audit limitations:** this is a configuration review, not a penetration test. It does not exploit vulnerabilities, change settings, validate actual packet flow, or query a live CVE/vendor-advisory feed. RouterOS version support must be verified against official MikroTik advisories. Findings about input firewall rules are indicators for manual review, not proof of internet exposure. Exported reports can contain router addresses and configuration evidence; store them as sensitive operational data.
+
+The configuration UI/API is not yet wired into this desktop audit client. The continue action opens the backend API documentation; it does not silently apply or change any settings.
+
 ## Backend capabilities
 
 The API is built with FastAPI and supports these early-stage workflows.

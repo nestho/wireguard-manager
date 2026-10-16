@@ -109,6 +109,15 @@ These defaults are restrictive by design. Only change host/mutation settings aft
 - Peer address validation, router-side overlap checks, dry-run preview, and create/revoke endpoints guarded by default-off mutation gates.
 - Hash-linked audit records with chain verification.
 
+
+## Read-only RouterOS pre-configuration audit
+
+Authenticated admins/operators can run `GET /api/v1/routers/{router_id}/audit` before proceeding to configuration. The handler issues only RouterOS REST GET requests for system identity/resource/package metadata, management services, input firewall rules, NAT, IP addresses/routes, and WireGuard interfaces/peers. It never calls the client's POST/PATCH/DELETE methods. A summary event is written to the manager's own audit database; RouterOS configuration is not modified.
+
+The report includes per-resource collection status, severity-labelled findings, recommendations, evidence, limitations, and next-action hints. Missing permissions/connectivity produce `unassessed` checks and review findings rather than a clean bill of health. The desktop client exports JSON/HTML. Treat exported reports as sensitive because they can contain internal addresses and security posture details.
+
+This is a bounded configuration review, not a vulnerability scanner or penetration test. It does not test exploitability, prove actual network exposure, or consult a live CVE feed. The RouterOS version is returned for manual comparison with official MikroTik security advisories. Firewall findings require manual validation against rule ordering and network topology.
+
 ## Linux VPN server optimizer
 
 See [linux-vpn-optimizer.md](linux-vpn-optimizer.md). The read-only endpoint `POST /api/v1/linux-servers/{id}/optimizer/inspect` collects kernel/CPU/memory/network-interface/sysctl/qdisc/NIC-offload/module/WireGuard snapshots and separates actionable recommendations from manual checks.

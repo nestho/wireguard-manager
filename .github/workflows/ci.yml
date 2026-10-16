@@ -28,6 +28,9 @@ jobs:
         run: npm install
       - name: Type-check and build frontend
         run: npm run build
+      - name: Build Linux desktop package
+        if: runner.os == 'Linux'
+        run: npm run desktop:build
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

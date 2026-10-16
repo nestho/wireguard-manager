@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "desktop:dev": "electron .",
+    "desktop:build": "electron-builder"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -19,6 +21,57 @@
   "devDependencies": {
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "io.nestho.wireguardmanager",
+    "productName": "WireGuard Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network;Security;"
+    }
+  },
+  "description": "Cross-platform WireGuard Manager read-only RouterOS audit desktop client",
+  "author": {
+    "name": "Nestho",
+    "email": "63925710+nestho@users.noreply.github.com"
   }
 }

@@ -1,10 +1,12 @@
 import importlib.util
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "wgm-acl-helper"
-SPEC = importlib.util.spec_from_file_location("wgm_acl_helper", SCRIPT)
+LOADER = SourceFileLoader("wgm_acl_helper", str(SCRIPT))
+SPEC = importlib.util.spec_from_loader("wgm_acl_helper", LOADER)
 HELPER = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(HELPER)

@@ -116,7 +116,7 @@ Build locally on the matching operating system:
 npm install
 npm run desktop:build
 ```
-Artifacts are written to `release/`. GitHub Actions also provides a manual workflow and builds all three OS families on a `v*` tag; CI artifacts are available for 14 days. These initial packages are unsigned, so macOS Gatekeeper/Windows SmartScreen may warn.
+Artifacts are written to `release/`. The manually triggered GitHub Actions workflow builds preview artifacts for Windows, macOS, and Linux; artifacts are retained for 7 days. It intentionally does not publish on version tags because this is not the complete product. These preview packages are unsigned, so macOS Gatekeeper/Windows SmartScreen may warn.
 
 **Architecture note:** the installer is currently the desktop audit client, not a self-contained bundle of the FastAPI service. The API must already be running and reachable (locally or on a trusted management network). The app defaults to `http://127.0.0.1:8000`; use HTTPS for remote API connections.
 
@@ -307,7 +307,7 @@ The GitHub Actions workflow on pushes and pull requests to main:
 2. Installs backend dependencies with development extras.
 3. Applies and validates Alembic migrations.
 4. Runs python -m pytest backend/tests.
-5. Builds the GitHub Pages artifact; deploys the static frontend on pushes to main.
+5. Builds the GitHub Pages demo artifact; deploys that static demo on pushes to main. This is not a production backend deployment.
 
 CI passing means the automated build/tests succeeded; it does **not** prove compatibility or safe rollback on physical routers or production Linux hosts. Run integration tests in an isolated lab before enabling mutations.
 

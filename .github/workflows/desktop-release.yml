@@ -1,10 +1,7 @@
-name: Desktop installers
+name: Desktop audit client preview (not production)
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
@@ -32,12 +29,12 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
-      - name: Build desktop installer
+      - name: Build desktop audit preview (not the full manager)
         run: npm run desktop:build
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact }}-preview
           path: release/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7

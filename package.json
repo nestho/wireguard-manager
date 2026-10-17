@@ -69,7 +69,7 @@
       "category": "Network;Security;"
     }
   },
-  "description": "Cross-platform WireGuard Manager read-only RouterOS audit desktop client",
+  "description": "Preview-only Electron client for read-only RouterOS audits; not the full production manager",
   "author": {
     "name": "Nestho",
     "email": "63925710+nestho@users.noreply.github.com"

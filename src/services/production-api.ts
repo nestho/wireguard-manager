@@ -71,6 +71,11 @@ export const api = {
   registerLinux: (body: {name:string;host:string;port:number;username:string;ssh_private_key:string;host_key_fingerprint:string}) =>
     request<LinuxServer>("/v1/linux-servers",{method:"POST",body:JSON.stringify(body)}),
   inspectLinux: (id:number|string) => request<{server:LinuxServer;supported:boolean;wireguard_installed:boolean;install_plan:{step:string;command:string}[]}>(`/v1/linux-servers/${id}/inspect`,{method:"POST"}),
+  previewLinuxInstall: (id:number|string) => request<Record<string,unknown>>(`/v1/linux-servers/${id}/install/preview`,{method:"POST"}),
+  installLinux: (id:number|string) => request<Record<string,unknown>>(`/v1/linux-servers/${id}/install`,{method:"POST",body:JSON.stringify({confirm:true})}),
+  inspectLinuxOptimizer: (id:number|string) => request<Record<string,unknown>>(`/v1/linux-servers/${id}/optimizer/inspect`,{method:"POST"}),
+  applyLinuxOptimizer: (id:number|string) => request<Record<string,unknown>>(`/v1/linux-servers/${id}/optimizer/apply`,{method:"POST",body:JSON.stringify({confirm:true})}),
+
   linuxPeers: (id:number|string) => request<LinuxPeer[]>(`/v1/linux-servers/${id}/peers`),
   remoteLinuxPeers: (id:number|string) => request<{server_id:number;interfaces:string[];peers:Record<string,unknown>[];historical:false}>(`/v1/linux-servers/${id}/peers/remote`),
   managedLinuxPeers: (id:number|string) => request<LinuxPeer[]>(`/v1/linux-servers/${id}/peers`),

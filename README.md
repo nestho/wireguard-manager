@@ -10,6 +10,8 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/nestho/wireguard-manager/actions/workflows/ci.yml"><strong>CI workflow</strong></a>
   &nbsp; · &nbsp;
+  <a href="https://github.com/nestho/wireguard-manager/blob/main/docs/PRODUCTION_DEPLOYMENT.md"><strong>Production deployment guide</strong></a>
+  &nbsp; · &nbsp;
   <a href="https://github.com/nestho/wireguard-manager/blob/main/backend/README.md"><strong>Backend setup</strong></a>
 </p>
 
@@ -42,35 +44,51 @@
 | Secret storage | Implemented | Fernet-encrypted router credentials, Linux SSH private keys, and stored peer private-key material |
 | MikroTik RouterOS | Early integration | Registration, TLS-verified connectivity checks, read-only WireGuard discovery, point-in-time counters, diagnostics |
 | Linux WireGuard servers | Early integration | SSH onboarding with pinned host-key fingerprints, host inspection, distro/package-manager detection, install preview, interface/peer discovery, counters |
-| Peer lifecycle | Implemented behind safety gates | Address validation, dry-run preview, explicit confirmation, guarded create/revoke, compensating rollback attempts |\n| Per-peer destination ACL | Implemented in PR #6 | CIDR allowlists with RouterOS/Linux firewall enforcement; existing peers require explicit ACL reconciliation |
+| Peer lifecycle | Implemented behind safety gates | Address validation, dry-run preview, explicit confirmation, guarded create/revoke, compensating rollback attempts |
+| Per-peer destination ACL | Implemented in PR #6 | CIDR allowlists with RouterOS/Linux firewall enforcement; existing peers require explicit ACL reconciliation |
 | Client configuration / QR | Implemented in API | Audited config and QR delivery; outputs contain private key material and must be handled as secrets |
 | Audit trail | Implemented | Hash-linked audit events and admin chain verification; not tamper-proof against an administrator who can rewrite the database |
 | Traffic history | Not implemented | API returns point-in-time counters, not historical time series |
-| Linux performance optimizer | Not included in current main | Do not treat work in an unmerged PR as a shipped feature |
+| Linux performance optimizer | Backend endpoints and guarded production UI controls exist | Read-only inspection is distinct from mutation; apply operations remain disabled unless explicitly enabled and validated |
 
 ## Architecture
 
-~~~text
+```text
 GitHub Pages / default Vite build
-  └── React demo with synthetic data and browser-local state
+  └── React demo with synthetic fixtures and browser-local state
 
-Production host (VITE_APP_MODE=production)
-  └── React UI → same-origin authenticated FastAPI endpoints
-      └── SQLAlchemy database and live RouterOS/Linux providers
+PM2 production host
+  └── Production-only React entry point
+      └── Same-origin /api proxy
+          └── FastAPI authentication/RBAC
+              ├── SQLAlchemy + Alembic persistence
+              ├── RouterOS REST provider (HTTPS)
+              ├── Linux SSH provider (pinned host key)
+              └── Hash-linked audit events
+```
 
-FastAPI backend
-  ├── JWT authentication and role checks
-  ├── SQLAlchemy + Alembic persistence
-  ├── RouterOS provider ── HTTPS / RouterOS REST API
-  ├── Linux provider ───── SSH with pinned host-key fingerprint
-  └── Audit events ─────── hash-linked database records
-~~~
+The Pages/default development dashboard is illustrative and must never be used as an operational control plane. The production build is isolated from the demo entry point and does not seed sample routers, peers, traffic, or audit events. It uses authenticated API calls and reads/writes the configured persistent database. Build isolation is checked in CI and again by the deployment script using known fixture markers; this is a useful guard, not a formal proof that every possible demo string is absent.
 
-The default demo build's routers, peers, traffic charts, diagnostics, and audit events are illustrative. The production build is a separate entry point that authenticates against the API and displays real router/Linux inventory, supports registering servers, and can perform read-only router peer discovery. The production UI is intentionally incomplete and does not yet expose the full API feature set.
+## Production deployment
 
-## Production server deployment
+The production host deployment and PM2 process definitions are merged into `main`. Follow the [production deployment and operations guide](docs/PRODUCTION_DEPLOYMENT.md); do not use GitHub Pages as the live manager.
 
-A separate production-only entry point and PM2 deployment path are under review in [PR #10](https://github.com/nestho/wireguard-manager/pull/10). The one-command deploy interface is `bash scripts/deploy-production.sh`; see [Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md). This path is distinct from the GitHub Pages demo. Do not treat it as production-approved until CI passes and the remaining operational UI workflows listed in the guide are complete.
+Quick path on a prepared host:
+
+```bash
+git clone https://github.com/nestho/wireguard-manager.git
+cd wireguard-manager
+cp .env.production.example .env
+nano .env
+chmod 600 .env
+bash scripts/deploy-production.sh
+```
+
+Before running the script, replace every placeholder in `.env`, generate independent `WGM_JWT_SECRET` and `WGM_ENCRYPTION_KEY` values, set a persistent `WGM_DATABASE_URL`, configure the exact external origin, and set the one-time admin credentials. The script does **not** prompt for or generate those secrets. On successful first bootstrap it removes the one-time bootstrap username/password from `.env`; save the admin credentials in a password manager first.
+
+The app listens on loopback at `127.0.0.1:4173` (web) and `127.0.0.1:8000` (API). Use a TLS reverse proxy and a restricted management network before remote access. Do not expose either listener directly to the public internet.
+
+**Release status:** CI passed for the merged production deployment change, including frontend builds, production-bundle marker checks, migration validation, and backend tests. This is not a claim of security certification or fully validated live infrastructure operations. Keep remote mutation gates disabled until the exact RouterOS/Linux versions, firewall ordering, rollback behavior, and change-control procedures have been tested in a lab. Review the limitations and release gates below.
 
 ## Frontend demo
 
@@ -141,20 +159,20 @@ The audit endpoint is `GET /api/v1/routers/{router_id}/audit` and requires an ad
 
 The configuration UI/API is not yet wired into this desktop audit client. The continue action opens the backend API documentation; it does not silently apply or change any settings.
 
-## PM2 production host deployment
+## PM2 process operations
 
-For a Linux host, the repository now includes a one-command PM2 deployment path. It builds a separate API-backed UI, initializes an empty persistent database, provisions the first admin account, applies Alembic migrations, and starts the FastAPI service under PM2. It does not deploy the GitHub Pages demo or seed demo records.
+The production service is managed by PM2. Run these commands as the same operating-system user that performed deployment:
 
-~~~bash
-# Install Node.js 20.19+ or 22.12+, Python 3.11+, curl and PM2 for the deployment user first.
-git clone https://github.com/nestho/wireguard-manager.git
-cd wireguard-manager
-bash scripts/deploy-production.sh
-~~~
+```bash
+pm2 status
+pm2 logs wireguard-manager-api
+pm2 logs wireguard-manager-web
+pm2 restart wireguard-manager-api
+pm2 restart wireguard-manager-web
+pm2 save
+```
 
-The script prompts for the initial admin credentials, generates unique JWT and encryption keys, creates the initial admin once, removes bootstrap credentials, and binds the service to `127.0.0.1:8000`. Put it behind a TLS reverse proxy before remote access. PM2 operations: `pm2 status`, `pm2 logs wireguard-manager`, `pm2 restart wireguard-manager`, `pm2 save`. Full steps and limitations: [Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md).
-
-**Important:** this production UI is an initial live-data slice, not the completed full management product. It supports router/server registration, connection/inspection checks, and read-only router peer discovery, but does not provide full peer lifecycle/audit/traffic/diagnostics UI. Keep all mutation flags disabled. Back up both `data/wireguard-manager.db` and `WGM_ENCRYPTION_KEY` securely; do not expose port 8000 publicly.
+The web process serves `dist-production` on `127.0.0.1:4173` and proxies same-origin `/api/*` requests to FastAPI on `127.0.0.1:8000`. The API is not the frontend; opening port 8000 at `/` can correctly return 404. See [production deployment and operations](docs/PRODUCTION_DEPLOYMENT.md) for first login, reverse proxy, backups, upgrades, smoke tests, and recovery.
 
 ## Backend capabilities
 
@@ -357,31 +375,32 @@ wireguard-manager/
 
 ## Production release criteria
 
-A release must not be described as production-ready until all of the following have been implemented and verified. CI passing on its own is not sufficient.
+A successful CI run or `/healthz` response is not sufficient by itself to declare the whole product production-ready. Before enabling live write operations or describing a deployment as production-approved, verify and document all of the following:
 
-- [ ] Complete API integration across all production UI views (the current production UI covers authentication, router/Linux registration and inventory, host checks, and read-only RouterOS peer discovery only); keep demo and production modes explicitly separate.
-- [ ] Deliver the full management UI in the desktop application, not only the read-only audit window.
-- [ ] Ship the backend with the desktop application or provide a tested, versioned server deployment. The user must not need to manually start an API process for the desktop bundle.
-- [ ] Implement first-run setup, secure admin provisioning, session expiry/refresh/logout, role-aware controls, and safe secret handling.
-- [ ] Add database migration/upgrade, durable application-data paths, backup and restore procedures, and tested upgrade/rollback behavior.
-- [ ] Build and smoke-test installers on native Windows, macOS, and Linux runners; add signing/notarization where credentials and distribution requirements allow.
-- [ ] Add end-to-end tests for login, router/server onboarding, read-only operations, peer preview, guarded mutations, failure/timeout recovery, exports, and permission boundaries.
-- [ ] Run security review and integration tests against supported RouterOS versions and supported Linux distributions in an isolated lab; keep mutations disabled until each provider passes.
-- [ ] Add dependency/SCA checks, secret scanning, rate limiting or equivalent local abuse controls, structured redacted logs, and actionable health/readiness checks.
-- [ ] Document supported OS/RouterOS/Linux versions, installation, network requirements, permissions, backup/restore, upgrade, uninstall, known limitations, and incident recovery.
-- [ ] Publish a versioned release only after all required CI checks and manual release sign-off pass.
+- [ ] Run the deployment and upgrade workflow on the intended supported production OS and confirm a clean install and an upgrade with existing data.
+- [ ] Verify admin bootstrap, login/logout, token refresh/expiry, role enforcement, and denied unauthenticated requests.
+- [ ] Test every production UI/API workflow against lab RouterOS versions and supported Linux distributions, including permission errors, timeouts, partial failures, and rollback failures.
+- [ ] Confirm peer create/revoke and per-peer ACL enforcement against actual firewall rule ordering, routing/NAT, and existing peers; keep mutation gates disabled until sign-off.
+- [ ] Test configuration and QR downloads securely; verify secrets are not logged, cached, or exposed to unauthorized roles.
+- [ ] Exercise database backup and restore together with the exact `WGM_ENCRYPTION_KEY`; verify a restore in an isolated environment.
+- [ ] Configure HTTPS, reverse-proxy headers, firewall restrictions, and the exact `WGM_ALLOWED_ORIGINS`; confirm the API listener is not public.
+- [ ] Validate PM2 restart/reboot recovery, log rotation/retention, disk monitoring, and a documented rollback path.
+- [ ] Add end-to-end tests, failure-injection tests, rate limiting, dependency/security scanning, and an external security review before broad production use.
+- [ ] Validate audit retention off-host; hash-linked database records alone are not immutable.
+- [ ] Treat the Electron desktop audit client as a separate read-only client, not a bundled full production manager.
+
+CI currently validates TypeScript/frontend builds, the isolated production build and known fixture-marker checks, Alembic migrations, and backend tests. It does not prove live router/server interoperability or production security.
 
 ## Known limitations and roadmap
 
-- [ ] Complete the API-backed production UI for registration, peer lifecycle, traffic, diagnostics, audit events, and role-aware workflows.
-- [ ] Add frontend authentication/session handling and role-aware UI.
-- [ ] Add integration tests against supported RouterOS versions and Linux distribution/sudo combinations.
-- [ ] Add robust reconciliation for timeout-after-write and failed rollback scenarios.
-- [ ] Add rate limiting, production deployment templates, secret-manager integration, and hardening guidance.
-- [ ] Add off-host append-only audit retention and an operational alerting/metrics pipeline.
-- [ ] Add historical traffic collection; current API counters are point-in-time snapshots.
-- [ ] Add end-to-end and accessibility testing.
-- [ ] Complete review/benchmarking of any future Linux performance-optimization feature before describing it as supported.
+- The deployment script and PM2 path are implemented; host-level backup/restore, upgrade/rollback, TLS/reverse-proxy, and reboot-recovery procedures still need to be validated in the target environment.
+- Real-device and Linux distribution integration tests, timeout-after-write reconciliation, and mutation rollback/failure-injection tests remain release gates.
+- Rate limiting, external secret-manager integration, formal key rotation/recovery, and independent security review remain outstanding.
+- Hash-linked audit events can be rewritten by an actor with database-level control; configure off-host retention for incident response.
+- Historical traffic collection, historical charts, alerting, and a metrics/monitoring pipeline are not implemented; traffic values are point-in-time counters.
+- Live peer create/revoke, Linux package installation, and optimizer apply operations are gated off by default. Do not enable them without lab validation, rollback testing, and change approval.
+- The Electron desktop package remains a separate read-only RouterOS audit client and does not bundle the complete API-backed manager.
+- GitHub Pages and the default Vite mode remain demo-only; no demo records are imported into the production entry point.
 
 ## Contributing
 

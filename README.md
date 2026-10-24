@@ -5,6 +5,13 @@
 > [!IMPORTANT]
 > **Production scope is partial.** GitHub Pages and the default Vite development build remain a synthetic demo. The new PM2 production build uses authenticated API calls and does not load sample routers, peers, traffic, or audit events. It currently supports login, router/Linux inventory, router registration, Linux server registration with a pinned SSH host-key fingerprint, router connection tests, Linux host inspection, and read-only RouterOS peer discovery; full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end tests, and a full production security review are still outstanding. The Electron installer remains a separate read-only audit client, not the complete product. Keep live mutations disabled and deploy behind TLS on a restricted management network.
 
+# WireGuard Manager
+
+**WireGuard Manager** manages WireGuard deployments across **MikroTik RouterOS** and **Linux servers**. GitHub Pages and the default Vite build remain a public demo only. A separate PM2-managed production deployment provides an API-backed UI with authentication, persistent inventory, peer workflows, access-control management, configuration delivery, diagnostics, and audit views.
+
+> [!IMPORTANT]
+> **Production deployment path implemented; operational release gates remain.** The production entry point is isolated from the demo dashboard and does not import its synthetic fixture records. CI passed for the merged production deployment implementation, including frontend builds, production-bundle marker checks, migrations, and backend tests. CI does not validate live router/server compatibility or certify the system secure. Keep peer create/revoke, Linux install, and optimizer-apply mutations disabled until the exact target versions, firewall behavior, rollback paths, and change-control procedures are validated. Deploy behind TLS on a restricted management network. The Electron package remains a separate read-only audit client, not a bundled full production manager.
+
 <p align="center">
   <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the frontend demo →</strong></a>
   &nbsp; · &nbsp;
@@ -37,7 +44,7 @@
 
 | Area | Status | Notes |
 |---|---|---|
-| React dashboard | Two build modes | Default mode is the Pages/dev demo; `VITE_APP_MODE=production` selects a separate API-backed UI with no synthetic seed records |
+| React dashboard | Two build modes | Default Vite/Pages build is demo-only; `npm run build:production` builds a separate API-backed UI with no synthetic seed records |
 | Authentication | Implemented in API | JWT access tokens, rotating/revocable refresh tokens, Argon2 password hashing |
 | Authorization | Implemented in API | Admin, operator, and viewer roles |
 | Database | Implemented | SQLAlchemy models and Alembic migrations; schema is not auto-mutated at app startup |

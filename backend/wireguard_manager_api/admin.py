@@ -1,6 +1,6 @@
 """Operational setup and audit verification endpoints."""
 import hashlib, json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from .db import get_db
 from .dependencies import require_roles
@@ -25,6 +25,23 @@ def bootstrap_admin(db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     return {"username": user.username, "role": user.role, "message": "Remove bootstrap credentials from the environment after setup"}
+
+@router.get("/audit")
+def list_audit_events(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
+    events = db.scalars(select(AuditEvent).order_by(AuditEvent.id.desc()).offset(offset).limit(limit)).all()
+    return [{
+        "id": event.id,
+        "actor": event.actor_username,
+        "action": event.action,
+        "target_type": event.target_type,
+        "target_id": event.target_id,
+        "outcome": event.outcome,
+        "details": json.loads(event.details_json or "{}"),
+        "created_at": event.created_at.isoformat(),
+        "event_hash": event.event_hash,
+        "previous_hash": event.previous_hash,
+    } for event in events]
+
 
 @router.get("/audit/verify")
 def verify_audit_chain(db: Session = Depends(get_db), user: User = Depends(require_roles("admin"))):

@@ -28,6 +28,11 @@ jobs:
         run: npm install
       - name: Type-check and build frontend
         run: npm run build
+      - name: Build isolated production frontend
+        run: |
+          npm run build:production
+          test -f dist-production/index.production.html
+          ! grep -R -E 'Demo workspace initialized|dev-001|Staging Gateway|wg-manager-demo-v2' dist-production --include='*.js' --include='*.html'
       - name: Build Linux desktop package
         if: runner.os == 'Linux'
         run: npm run desktop:build

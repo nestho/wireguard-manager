@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer, type ManagedPeer } from "./services/production-api";
+import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer, type ManagedPeer, type LinuxPeer } from "./services/production-api";
 
 type Tab = "overview" | "routers" | "linux" | "traffic" | "diagnostics" | "users";
 export default function ProductionApp() {
@@ -10,6 +10,11 @@ export default function ProductionApp() {
   const [selectedRouter, setSelectedRouter] = useState<number | "">("");
   const [traffic, setTraffic] = useState<TrafficPeer[]>([]);
   const [managedPeers, setManagedPeers] = useState<ManagedPeer[]>([]);
+  const [selectedServer, setSelectedServer] = useState<number | "">("");
+  const [linuxPeers, setLinuxPeers] = useState<LinuxPeer[]>([]);
+  const [linuxPeerForm, setLinuxPeerForm] = useState({interface_name:"wg0",name:"",allowed_address:"",access_networks:""});
+  const [linuxPeerPreview, setLinuxPeerPreview] = useState(false);
+  const [linuxAclEdit, setLinuxAclEdit] = useState<Record<number,string>>({});
   const [peerForm, setPeerForm] = useState({interface_name:"wg0",name:"",allowed_address:"",access_networks:"",endpoint:""});
   const [peerPreview, setPeerPreview] = useState(false);
   const [aclEdit, setAclEdit] = useState<Record<number,string>>({});
@@ -43,6 +48,7 @@ export default function ProductionApp() {
   useEffect(() => { if (session) void load(); }, [session]);
   useEffect(() => { if (!session) return; const id=window.setInterval(()=>void load(),30000); return ()=>window.clearInterval(id); }, [session]);
   useEffect(() => { if (session && selectedRouter) void api.managedPeers(selectedRouter).then(setManagedPeers).catch(e=>setError(e instanceof Error?e.message:String(e))); else setManagedPeers([]); }, [session,selectedRouter]);
+  useEffect(() => { if(session && selectedServer) void api.managedLinuxPeers(selectedServer).then(setLinuxPeers).catch(e=>setError(e instanceof Error?e.message:String(e))); else setLinuxPeers([]); },[session,selectedServer]);
   const signIn = async (e:FormEvent) => { e.preventDefault(); await run(async()=>{ const s=await login(loginForm.username,loginForm.password); setCurrentSession(s); await load(); return s; }); };
   const submitRouter = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.addRouter({...routerForm,port:Number(routerForm.port),tls_verify:true}),"Router registered. Test its connection before relying on it."); if(result) {setRouterForm({name:"",host:"",port:"443",username:"",password:""});await load();} };
   const submitLinux = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.registerLinux({...linuxForm,port:Number(linuxForm.port)}),"Linux server registered. Inspect it to verify host identity and capabilities."); if(result){setLinuxForm({name:"",host:"",port:"22",username:"",ssh_private_key:"",host_key_fingerprint:""});await load();} };
@@ -53,6 +59,12 @@ export default function ProductionApp() {
   const revokePeer = async (peer:ManagedPeer) => { if(!selectedRouter||!window.confirm("Confirm revocation of peer \""+peer.name+"\"? The remote peer will be disabled and its stored private key erased."))return; const result=await run(()=>api.revokePeer(selectedRouter,peer.id),"Peer revocation completed."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
   const saveAcl = async (peer:ManagedPeer) => { if(!selectedRouter)return; const networks=(aclEdit[peer.id]??peer.access_networks.join("\n")).split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); const result=await run(()=>api.setPeerAcl(selectedRouter,peer.id,networks),"Peer destination ACL updated."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
   const downloadPeer = async (peer:ManagedPeer,format:"config"|"qr") => { if(!selectedRouter)return; await run(()=>api.downloadClientConfig(selectedRouter,peer.id,{...clientConfig,persistent_keepalive:Number(clientConfig.persistent_keepalive)},format),format==="config"?"Client configuration downloaded.":"Client QR image downloaded."); };
+  const previewLinuxPeer = async () => { if(!selectedServer)return; const body={interface_name:linuxPeerForm.interface_name,name:linuxPeerForm.name,allowed_address:linuxPeerForm.allowed_address,access_networks:linuxPeerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)}; const result=await run(()=>api.previewLinuxPeer(selectedServer,body),"Linux peer preview passed. Review it before explicitly creating the peer.");setLinuxPeerPreview(!!result); };
+  const createLinuxPeer = async () => { if(!selectedServer||!linuxPeerPreview)return;const body={interface_name:linuxPeerForm.interface_name,name:linuxPeerForm.name,allowed_address:linuxPeerForm.allowed_address,access_networks:linuxPeerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)};const result=await run(()=>api.createLinuxPeer(selectedServer,body),"Linux peer creation request completed.");if(result){setLinuxPeerForm({interface_name:"wg0",name:"",allowed_address:"",access_networks:""});setLinuxPeerPreview(false);setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));}};
+  const revokeLinuxPeer = async(peer:LinuxPeer)=>{if(!selectedServer||!window.confirm("Confirm revocation of Linux peer \""+peer.name+"\"?"))return;const result=await run(()=>api.revokeLinuxPeer(selectedServer,peer.id),"Linux peer revocation completed.");if(result)setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));};
+  const saveLinuxAcl = async(peer:LinuxPeer)=>{if(!selectedServer)return;const networks=(linuxAclEdit[peer.id]??peer.access_networks.join("\n")).split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);const result=await run(()=>api.setLinuxPeerAcl(selectedServer,peer.id,networks),"Linux peer ACL updated.");if(result)setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));};
+  const downloadLinuxPeer = async(peer:LinuxPeer,format:"config"|"qr")=>{if(!selectedServer)return;await run(()=>api.downloadLinuxClientConfig(selectedServer,peer.id,{...clientConfig,persistent_keepalive:Number(clientConfig.persistent_keepalive)},format),format==="config"?"Linux client configuration downloaded.":"Linux client QR downloaded.");};
+
   if (!session) return <main className="prod-shell"><header className="prod-header"><div><b>WireGuard Manager</b><span>Production control plane</span></div><span className="prod-state">Live API · no demo data</span></header><form className="prod-card prod-login" onSubmit={signIn}><h1>Sign in</h1><p>Use an account provisioned by your administrator. No default or demo account is created.</p><label>Username<input autoComplete="username" required value={loginForm.username} onChange={e=>setLoginForm({...loginForm,username:e.target.value})}/></label><label>Password<input type="password" autoComplete="current-password" required value={loginForm.password} onChange={e=>setLoginForm({...loginForm,password:e.target.value})}/></label><button disabled={busy} className="prod-primary">{busy?"Signing in…":"Sign in"}</button>{error&&<p className="prod-error" role="alert">{error}</p>}<small>API must be configured and reachable by this browser. There are no seeded credentials.</small></form></main>;
 
   const tabs: {id:Tab;label:string}[]=[{id:"overview",label:"Overview"},{id:"routers",label:"RouterOS"},{id:"linux",label:"Linux servers"},{id:"traffic",label:"Live traffic"},{id:"diagnostics",label:"Diagnostics & audit"},{id:"users",label:"Users"}];

@@ -6,3 +6,9 @@ dist/
 .DS_Store
 *.log
 coverage/
+# Production runtime state and credentials
+.venv/
+data/
+release/
+.first-admin-username
+*.db

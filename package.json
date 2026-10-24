@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:production": "tsc -b && VITE_APP_MODE=production vite build",
     "preview": "vite preview",
     "desktop:dev": "electron .",
     "desktop:build": "electron-builder --publish never",
@@ -30,49 +31,14 @@
   "build": {
     "appId": "io.nestho.wireguardmanager",
     "productName": "WireGuard Manager",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "desktop/**/*",
-      "package.json"
-    ],
+    "directories": { "output": "release" },
+    "files": ["desktop/**/*", "package.json"],
     "asar": true,
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.utilities"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Network;Security;"
-    }
+    "mac": { "target": ["dmg", "zip"], "category": "public.app-category.utilities" },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }] },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true },
+    "linux": { "target": ["AppImage", "deb"], "category": "Network;Security;" }
   },
   "description": "Preview-only Electron client for read-only RouterOS audits; not the full production manager",
-  "author": {
-    "name": "Nestho",
-    "email": "63925710+nestho@users.noreply.github.com"
-  }
+  "author": { "name": "Nestho", "email": "63925710+nestho@users.noreply.github.com" }
 }

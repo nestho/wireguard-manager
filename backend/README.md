@@ -3,7 +3,7 @@
 FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses the authenticated API-backed UI and serves it from FastAPI.
 
 > [!WARNING]
-> The PM2 deployment path is available, but the overall product is still incomplete and has not been security-certified. The production UI currently supports authentication, router/Linux inventory, and read-only peer discovery; complete management forms, full peer lifecycle UI, end-to-end testing, rate limiting, timeout reconciliation, and off-host audit retention remain outstanding. Live peer create/revoke and Linux install operations are disabled by default.
+> The PM2 deployment path is available, but the overall product is still incomplete and has not been security-certified. The production UI currently supports authentication, router/Linux registration and inventory, host checks, and read-only peer discovery; full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end testing, rate limiting, timeout reconciliation, and off-host audit retention remain outstanding. Live peer create/revoke and Linux install operations are disabled by default.
 
 ## Contents
 

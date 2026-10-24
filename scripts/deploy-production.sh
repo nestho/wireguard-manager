@@ -14,7 +14,7 @@ need npm
 need python3
 need pm2
 need curl
-[[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 20 ]] || die "Node.js 20+ is required."
+node -e 'const [major,minor]=process.versions.node.split(".").map(Number); const ok=(major===20 && minor>=19) || (major===22 && minor>=12) || major>22; process.exit(ok ? 0 : 1)' || die "Node.js 20.19+ or 22.12+ is required."
 python3 - <<'PY'
 import sys
 if sys.version_info < (3, 11):

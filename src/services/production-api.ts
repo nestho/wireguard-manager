@@ -58,6 +58,13 @@ export const api = {
     request<RouterRecord>("/v1/routers", {method:"POST",body:JSON.stringify(body)}),
   testRouter: (id:number|string) => request<{status:string;identity:unknown;resource:Record<string,unknown>}>(`/v1/routers/${id}/test`,{method:"POST"}),
   routerPeers: (id:number|string) => request<{router_id:number;interfaces:Record<string,unknown>[];peers:Record<string,unknown>[];read_only:boolean;retrieved_at:string}>(`/v1/routers/${id}/wireguard/peers`),
+  managedPeers: (id:number|string) => request<ManagedPeer[]>(`/v1/routers/${id}/peers`),
+  previewPeer: (id:number|string,body:PeerPayload) => request<Record<string,unknown>>(`/v1/routers/${id}/peers/preview`,{method:"POST",body:JSON.stringify({...body,dry_run:true,confirm:false})}),
+  createPeer: (id:number|string,body:PeerPayload) => request<ManagedPeer>(`/v1/routers/${id}/peers`,{method:"POST",body:JSON.stringify({...body,dry_run:false,confirm:true})}),
+  revokePeer: (routerId:number|string,peerId:number|string) => request<Record<string,unknown>>(`/v1/routers/${routerId}/peers/${peerId}?confirm=true`,{method:"DELETE"}),
+  setPeerAcl: (routerId:number|string,peerId:number|string,access_networks:string[]) => request<Record<string,unknown>>(`/v1/routers/${routerId}/peers/${peerId}/access-control`,{method:"PUT",body:JSON.stringify({access_networks})}),
+  downloadClientConfig: (routerId:number|string,peerId:number|string,body:ClientConfigPayload,format:"config"|"qr") => downloadArtifact(`/v1/routers/${routerId}/peers/${peerId}/${format}`,body),
+
   routerTraffic: (id:number|string) => request<{router_id:number;historical:false;peers:TrafficPeer[]}>(`/v1/routers/${id}/traffic`),
   routerDiagnostics: (id:number|string) => request<{router_id:number;status:string;checks:{name:string;status:string;duration_ms:number;item_count:number|null}[]}>(`/v1/routers/${id}/diagnostics`,{method:"POST"}),
   linuxServers: () => request<LinuxServer[]>("/v1/linux-servers"),
@@ -73,3 +80,18 @@ export type RouterRecord = {id:number;name:string;host:string;port:number;userna
 export type LinuxServer = {id:number;name:string;host:string;port:number;username:string;distro_id:string|null;distro_version:string|null;package_manager:string|null;wireguard_installed:boolean;last_status:string;last_check_at:string|null;created_at:string};
 export type LinuxPeer = {id:number;server_id:number;interface_name:string;name:string;public_key:string;allowed_address:string;access_networks:string[];access_control_applied:boolean;status:string;created_at:string};
 export type TrafficPeer = {router_peer_id:string;name:string;public_key:string;allowed_address:string;rx_bytes:number;tx_bytes:number;last_handshake:string|null;disabled:boolean;collected_at:string};
+
+export type ManagedPeer = {id:number;router_id:number;name:string;public_key:string;allowed_address:string;access_networks:string[];access_control_applied:boolean;status:string;created_at:string;private_key_available:boolean};
+export type PeerPayload = {interface_name:string;name:string;allowed_address:string;access_networks:string[];endpoint?:string|null};
+export type ClientConfigPayload = {server_public_key:string;endpoint:string;dns:string;allowed_ips:string;persistent_keepalive:number};
+async function downloadArtifact(path:string, body:ClientConfigPayload, attempt=true):Promise<void> {
+  const headers = new Headers({"Content-Type":"application/json","Accept":"application/octet-stream"});
+  if(session?.access_token) headers.set("Authorization", `Bearer ${session.access_token}`);
+  const response = await fetch(`${API_BASE}${path.startsWith("/")?path:`/${path}`}`,{method:"POST",headers,body:JSON.stringify(body),credentials:"same-origin"});
+  if(response.status===401&&attempt&&session?.refresh_token){await refreshSession();return downloadArtifact(path,body,false);}
+  if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.detail||`Download failed: ${response.status}`);}
+  const blob=await response.blob();
+  const disposition=response.headers.get("content-disposition")||"";
+  const filename=disposition.match(/filename="([^"]+)"/i)?.[1]||"wireguard-client";
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+}

@@ -1,12 +1,5 @@
 # WireGuard Manager
 
-**WireGuard Manager** is an early-stage project for managing WireGuard deployments on **MikroTik RouterOS** and **Linux servers**. GitHub Pages is strictly a public product demo. A separate PM2-managed host deployment now serves an API-backed production-mode UI with live router/server inventory and read-only peer discovery; it is not yet a complete feature-parity or security-audited product.
-
-> [!IMPORTANT]
-> **Production scope is partial.** GitHub Pages and the default Vite development build remain a synthetic demo. The new PM2 production build uses authenticated API calls and does not load sample routers, peers, traffic, or audit events. It currently supports login, router/Linux inventory, router registration, Linux server registration with a pinned SSH host-key fingerprint, router connection tests, Linux host inspection, and read-only RouterOS peer discovery; full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end tests, and a full production security review are still outstanding. The Electron installer remains a separate read-only audit client, not the complete product. Keep live mutations disabled and deploy behind TLS on a restricted management network.
-
-# WireGuard Manager
-
 **WireGuard Manager** manages WireGuard deployments across **MikroTik RouterOS** and **Linux servers**. GitHub Pages and the default Vite build remain a public demo only. A separate PM2-managed production deployment provides an API-backed UI with authentication, persistent inventory, peer workflows, access-control management, configuration delivery, diagnostics, and audit views.
 
 > [!IMPORTANT]

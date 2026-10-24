@@ -73,6 +73,13 @@ export const api = {
   inspectLinux: (id:number|string) => request<{server:LinuxServer;supported:boolean;wireguard_installed:boolean;install_plan:{step:string;command:string}[]}>(`/v1/linux-servers/${id}/inspect`,{method:"POST"}),
   linuxPeers: (id:number|string) => request<LinuxPeer[]>(`/v1/linux-servers/${id}/peers`),
   remoteLinuxPeers: (id:number|string) => request<{server_id:number;interfaces:string[];peers:Record<string,unknown>[];historical:false}>(`/v1/linux-servers/${id}/peers/remote`),
+  managedLinuxPeers: (id:number|string) => request<LinuxPeer[]>(`/v1/linux-servers/${id}/peers`),
+  previewLinuxPeer: (id:number|string,body:PeerPayload) => request<Record<string,unknown>>(`/v1/linux-servers/${id}/peers/preview`,{method:"POST",body:JSON.stringify({...body,dry_run:true,confirm:false})}),
+  createLinuxPeer: (id:number|string,body:PeerPayload) => request<LinuxPeer>(`/v1/linux-servers/${id}/peers`,{method:"POST",body:JSON.stringify({...body,dry_run:false,confirm:true})}),
+  revokeLinuxPeer: (serverId:number|string,peerId:number|string) => request<Record<string,unknown>>(`/v1/linux-servers/${serverId}/peers/${peerId}?confirm=true`,{method:"DELETE"}),
+  setLinuxPeerAcl: (serverId:number|string,peerId:number|string,access_networks:string[]) => request<Record<string,unknown>>(`/v1/linux-servers/${serverId}/peers/${peerId}/access-control`,{method:"PUT",body:JSON.stringify({access_networks})}),
+  downloadLinuxClientConfig: (serverId:number|string,peerId:number|string,body:ClientConfigPayload,format:"config"|"qr") => downloadArtifact(`/v1/linux-servers/${serverId}/peers/${peerId}/${format}`,body),
+
   auditRouter: (id:number|string) => request<Record<string,unknown>>(`/v1/routers/${id}/audit`),
   createUser: (body:{username:string;password:string;role:"admin"|"operator"|"viewer"}) => request<{id:number;username:string;role:string;is_active:boolean}>("/v1/auth/users",{method:"POST",body:JSON.stringify(body)}),
 };

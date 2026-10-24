@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WGM_", env_file=".env", extra="ignore")
-    environment: str = "development"
+    environment: str = Field(default="development", validation_alias="WGM_ENV")
     database_url: str = "sqlite:///./wireguard-manager.db"
     jwt_secret: str = Field(default="", repr=False)
     encryption_key: str = Field(default="", repr=False)

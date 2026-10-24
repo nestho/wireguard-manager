@@ -1,9 +1,9 @@
 # WireGuard Manager
 
-**WireGuard Manager** is an early-stage, self-hosted management API and frontend prototype for WireGuard deployments on **MikroTik RouterOS** and **Linux servers**.
+**WireGuard Manager** is an early-stage project for managing WireGuard deployments on **MikroTik RouterOS** and **Linux servers**. GitHub Pages is strictly a public product demo; it is not the production application or a supported control plane.
 
 > [!IMPORTANT]
-> **Development status — not production-ready.** The FastAPI backend contains real inventory, discovery, diagnostics, and guarded mutation endpoints. The React dashboard is still a standalone demo and is **not connected to the backend**. Live write operations are disabled by default. Passing CI/unit tests does not replace integration tests against your actual RouterOS versions, Linux distributions, SSH/sudo policy, and deployment environment.
+> **Release gate — not production-ready yet.** The React dashboard currently uses synthetic data and browser-local state; it is not connected to the FastAPI backend. The Electron installer currently contains only the read-only audit client and requires a separately running API. Do not use the current release to manage real infrastructure. GitHub Pages intentionally remains a demo only. A production release requires real UI/API integration, a self-contained installer (or a documented server deployment), security/integration testing, persistent storage and backup/restore validation.
 
 <p align="center">
   <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the frontend demo →</strong></a>
@@ -25,6 +25,7 @@
 - [Security and operational guardrails](#security-and-operational-guardrails)
 - [Testing and CI](#testing-and-ci)
 - [Repository layout](#repository-layout)
+- [Production release criteria](#production-release-criteria)
 - [Known limitations and roadmap](#known-limitations-and-roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -65,6 +66,8 @@ FastAPI backend
 The frontend and API are separate deliverables today. The demo's routers, peers, traffic charts, diagnostics, and audit events are illustrative; they do not represent the database or live infrastructure. API operations must be invoked directly through the API or another client until frontend-to-API integration is implemented.
 
 ## Frontend demo
+
+**This GitHub Pages site is a demo only.** It uses synthetic fixtures and browser-local state, has no connection to your routers or the production database, and must never be used as an operational control plane. Publishing the demo does not publish or deploy the backend.
 
 The live static dashboard includes these illustrative views:
 
@@ -113,7 +116,7 @@ Build locally on the matching operating system:
 npm install
 npm run desktop:build
 ```
-Artifacts are written to `release/`. GitHub Actions also provides a manual workflow and builds all three OS families on a `v*` tag; CI artifacts are available for 14 days. These initial packages are unsigned, so macOS Gatekeeper/Windows SmartScreen may warn.
+Artifacts are written to `release/`. The manually triggered GitHub Actions workflow builds preview artifacts for Windows, macOS, and Linux; artifacts are retained for 7 days. It intentionally does not publish on version tags because this is not the complete product. These preview packages are unsigned, so macOS Gatekeeper/Windows SmartScreen may warn.
 
 **Architecture note:** the installer is currently the desktop audit client, not a self-contained bundle of the FastAPI service. The API must already be running and reachable (locally or on a trusted management network). The app defaults to `http://127.0.0.1:8000`; use HTTPS for remote API connections.
 
@@ -304,7 +307,7 @@ The GitHub Actions workflow on pushes and pull requests to main:
 2. Installs backend dependencies with development extras.
 3. Applies and validates Alembic migrations.
 4. Runs python -m pytest backend/tests.
-5. Builds the GitHub Pages artifact; deploys the static frontend on pushes to main.
+5. Builds the GitHub Pages demo artifact; deploys that static demo on pushes to main. This is not a production backend deployment.
 
 CI passing means the automated build/tests succeeded; it does **not** prove compatibility or safe rollback on physical routers or production Linux hosts. Run integration tests in an isolated lab before enabling mutations.
 
@@ -329,6 +332,22 @@ wireguard-manager/
 ├── SECURITY.md                    # Security reporting and deployment guardrails
 └── LICENSE                        # MIT license
 ~~~
+
+## Production release criteria
+
+A release must not be described as production-ready until all of the following have been implemented and verified. CI passing on its own is not sufficient.
+
+- [ ] Replace mock router/device/traffic/diagnostic/audit state in the React app with authenticated API calls; add explicit demo mode that cannot be mistaken for live data.
+- [ ] Deliver the full management UI in the desktop application, not only the read-only audit window.
+- [ ] Ship the backend with the desktop application or provide a tested, versioned server deployment. The user must not need to manually start an API process for the desktop bundle.
+- [ ] Implement first-run setup, secure admin provisioning, session expiry/refresh/logout, role-aware controls, and safe secret handling.
+- [ ] Add database migration/upgrade, durable application-data paths, backup and restore procedures, and tested upgrade/rollback behavior.
+- [ ] Build and smoke-test installers on native Windows, macOS, and Linux runners; add signing/notarization where credentials and distribution requirements allow.
+- [ ] Add end-to-end tests for login, router/server onboarding, read-only operations, peer preview, guarded mutations, failure/timeout recovery, exports, and permission boundaries.
+- [ ] Run security review and integration tests against supported RouterOS versions and supported Linux distributions in an isolated lab; keep mutations disabled until each provider passes.
+- [ ] Add dependency/SCA checks, secret scanning, rate limiting or equivalent local abuse controls, structured redacted logs, and actionable health/readiness checks.
+- [ ] Document supported OS/RouterOS/Linux versions, installation, network requirements, permissions, backup/restore, upgrade, uninstall, known limitations, and incident recovery.
+- [ ] Publish a versioned release only after all required CI checks and manual release sign-off pass.
 
 ## Known limitations and roadmap
 

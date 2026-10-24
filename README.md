@@ -65,6 +65,10 @@ FastAPI backend
 
 The frontend and API are separate deliverables today. The demo's routers, peers, traffic charts, diagnostics, and audit events are illustrative; they do not represent the database or live infrastructure. API operations must be invoked directly through the API or another client until frontend-to-API integration is implemented.
 
+## Production server deployment
+
+A separate production-only entry point and PM2 deployment path are under review in [PR #10](https://github.com/nestho/wireguard-manager/pull/10). The one-command deploy interface is `bash scripts/deploy-production.sh`; see [Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md). This path is distinct from the GitHub Pages demo. Do not treat it as production-approved until CI passes and the remaining operational UI workflows listed in the guide are complete.
+
 ## Frontend demo
 
 **This GitHub Pages site is a demo only.** It uses synthetic fixtures and browser-local state, has no connection to your routers or the production database, and must never be used as an operational control plane. Publishing the demo does not publish or deploy the backend.

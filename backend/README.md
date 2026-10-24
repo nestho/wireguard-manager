@@ -1,9 +1,9 @@
 # WireGuard Manager API
 
-FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses the authenticated API-backed UI and serves it from FastAPI.
+FastAPI backend for WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses an authenticated API-backed UI served by a PM2-managed static web process that proxies same-origin API requests to FastAPI.
 
 > [!WARNING]
-> The PM2 deployment path is available, but the overall product is still incomplete and has not been security-certified. The production UI currently supports authentication, router/Linux registration and inventory, host checks, and read-only peer discovery; full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end testing, rate limiting, timeout reconciliation, and off-host audit retention remain outstanding. Live peer create/revoke and Linux install operations are disabled by default.
+> The PM2 deployment path and API-backed production UI are implemented, and CI covers frontend builds, known demo-fixture checks, migrations, and backend tests. This is not a security certification or proof of compatibility with live infrastructure. The production UI includes peer lifecycle, ACL, config/QR, diagnostics, router audit, user management, and audit browsing workflows, but live peer creation/revocation, Linux package installation, and optimizer apply operations remain gated off by default. Real-device end-to-end/failure-injection tests, rate limiting, timeout/rollback reconciliation, backup/restore drills, and off-host audit retention remain release gates.
 
 ## Contents
 
@@ -20,7 +20,7 @@ FastAPI backend for early-stage, multi-platform WireGuard inventory and controll
 
 ## Production host deployment
 
-See [the PM2 production deployment guide](../docs/PRODUCTION_DEPLOYMENT.md). From the repository root on a prepared Linux host, run `bash scripts/deploy-production.sh`. It builds the production-mode frontend, applies Alembic migrations, provisions the first administrator on a clean install, and starts the API/UI with PM2. It preserves existing `.env` and database files on updates. Do not expose port 8000 directly to the internet.
+See the [production deployment and operations guide](../docs/PRODUCTION_DEPLOYMENT.md). On a prepared host, run `bash scripts/deploy-production.sh` from the repository root after creating `.env` from `.env.production.example` and configuring unique JWT/Fernet secrets, a persistent database URL, the exact external origin, and first-admin credentials. The script does not generate secrets or prompt for the admin password. It builds the isolated production UI, applies Alembic migrations without demo seeding/resetting, starts the API and web frontend under PM2, performs health checks, and removes one-time bootstrap credentials after the first bootstrap attempt. It preserves the existing `.env` and database files, but migrations are not an atomic rollback guarantee. Keep the services loopback-bound and put TLS/restricted ingress in front before remote use.
 
 ## Requirements
 
@@ -134,12 +134,12 @@ Linux API routes are documented at `/docs` under `linux-servers`, `linux-peers`,
 
 Inspect a server before requesting an install plan. Package installation is limited to recognized OS/package-manager combinations and runs via `sudo -n`; it requires explicit confirmation. Linux package installation, peer changes, and optimizer changes are disabled by default. Keep gates off until tests against exact distributions, sudo rules, WireGuard versions, and expected traffic loads are completed.
 
-Not production-ready. Current gaps include:
-- Frontend-to-API integration and frontend authentication/session handling.
-- Complete integration and failure-injection tests against real supported RouterOS/Linux versions.
+Remaining production release gates include:
+- End-to-end and failure-injection tests against real supported RouterOS/Linux versions, including permission errors, timeouts, partial writes, rollback failure, firewall ordering, and ACL reconciliation.
 - Robust reconciliation for ambiguous timeout-after-write and rollback failure scenarios.
-- Rate limiting, production deployment manifests, and full deployment hardening.
+- Rate limiting, dependency/security scanning, and an independent security review.
 - External secret-manager support and tested key rotation/recovery procedures.
+- Tested database + encryption-key backup/restore and PM2 reboot recovery.
 - Tamper-resistant off-host audit retention.
 - Historical traffic/metrics storage, alerting, and monitoring.
 - End-to-end and accessibility tests.
@@ -183,4 +183,4 @@ wgm-ssh-user ALL=(root) NOPASSWD: /usr/local/sbin/wgm-acl-helper
 
 Do not grant unrestricted `nft`, `sh`, or `install` sudo access for ACL management. Ensure the helper is root-owned and not writable by the SSH account, and validate the nftables include configuration before enabling live mutations.
 
-**Important limitations:** this frontend is still demo-only and is not connected to these API endpoints. Existing peers are not automatically reconciled by the migration; apply the ACL endpoint to each existing peer before relying on default-deny policy. Test the exact RouterOS version, nftables version, and existing firewall ordering in a lab before enabling live mutations. These endpoints do not replace a review of pre-existing broad accept rules or routing/NAT policy.
+**Important limitations:** the GitHub Pages/default Vite frontend is demo-only; the separate production UI is API-backed and exposes ACL controls. Existing peers are not automatically reconciled by the migration; apply the ACL endpoint to each existing peer before relying on default-deny policy. Test the exact RouterOS version, nftables version, and existing firewall ordering in a lab before enabling live mutations. These endpoints do not replace a review of pre-existing broad accept rules or routing/NAT policy.

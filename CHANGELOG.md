@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to WireGuard Manager are recorded here. The backend has not yet published a stable production release; entries describe repository capabilities and limitations, not a production-readiness claim.
+Notable changes to WireGuard Manager are recorded here. These entries describe merged repository capabilities; they are not a security certification or a claim that every live infrastructure workflow has passed production acceptance testing.
 
 ## Unreleased
 
@@ -20,15 +20,24 @@ Notable changes to WireGuard Manager are recorded here. The backend has not yet 
 ### Frontend
 - Added a responsive React/TypeScript/Vite dashboard prototype with Overview, Routers, Users & devices, Traffic, Diagnostics, Audit log, Settings, and illustrative Linux Servers views.
 - Added synthetic seed data, demo-only interactions, local browser persistence, CSV/JSON exports where offered by the UI, SVG preview illustrations, and GitHub Pages deployment workflow.
-- Clarified that the frontend is not yet integrated with the backend and all frontend operational data is illustrative.
+- Kept the GitHub Pages/default Vite dashboard explicitly demo-only, with synthetic fixtures and browser-local state.
+- Added a separate production-only React entry point and typed API client; the production bundle does not import the demo dashboard or seed demo records.
+- Added authenticated production workflows for RouterOS and Linux server inventory, connectivity/inspection, peer discovery and lifecycle controls, per-peer destination ACLs, client configuration/QR delivery, diagnostics, router audit, user management, audit browsing, and audit-chain verification.
+
+### Production deployment and operations
+- Added a PM2-managed production deployment path with `ecosystem.config.cjs`, a same-origin frontend `/api` proxy, and `bash scripts/deploy-production.sh` for one-command install/upgrade.
+- Added `.env.production.example` and a production deployment guide covering secret generation, one-time admin bootstrap, database migrations, health checks, PM2 operations, reverse-proxy/TLS requirements, and operational safeguards.
+- Deployment builds only the production entry point, checks known demo fixture markers in the output, applies Alembic migrations without seeding or resetting the database, starts/reloads PM2 services, and performs local health checks.
+- CI now builds the production-only frontend, checks fixture markers and deployment scripts, validates migrations, and runs backend tests. The merged production change passed CI on 2026-10-24.
 
 ### Security and known limitations
 - RouterOS peer mutations are disabled by default with WGM_ENABLE_PEER_MUTATIONS=false; Linux installation and peer mutations are disabled by default with WGM_ENABLE_LINUX_MUTATIONS=false.
 - Public RouterOS and Linux host targets are disabled by default. Linux SSH registration requires an independently verified SHA256 host-key fingerprint and uses IP-literal targets.
 - Remote mutation rollback is best-effort. Timeouts, database failures, and remote state mismatches can require manual reconciliation.
 - Hash-linked audit records are not immutable against an actor able to rewrite the database and recompute the chain.
-- Rate limiting, external secret-manager integration, off-host tamper-resistant audit retention, historical monitoring, production deployment hardening, real-device integration tests, and frontend/API integration remain outstanding.
-- The Linux performance optimizer is not listed as a shipped capability unless its implementation is merged to main and its behavior is validated and documented.
+- The PM2 deployment path is implemented, but target-host upgrade/recovery, backup/restore, reverse-proxy/TLS, reboot recovery, and real-device acceptance must still be validated in the deployment environment.
+- Rate limiting, external secret-manager integration, tested key rotation/recovery, off-host tamper-resistant audit retention, historical monitoring, end-to-end/failure-injection tests, and an independent security review remain outstanding.
+- The Linux optimizer has guarded backend/UI support; live apply operations must remain disabled until tested against the exact host/kernel/sysctl environment and approved change-control/rollback procedures.
 
 ## Version history
 

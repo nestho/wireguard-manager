@@ -1,9 +1,9 @@
 # WireGuard Manager
 
-**WireGuard Manager** is an early-stage project for managing WireGuard deployments on **MikroTik RouterOS** and **Linux servers**. GitHub Pages is strictly a public product demo; it is not the production application or a supported control plane.
+**WireGuard Manager** is an early-stage project for managing WireGuard deployments on **MikroTik RouterOS** and **Linux servers**. GitHub Pages is strictly a public product demo. A separate PM2-managed host deployment now serves an API-backed production-mode UI with live router/server inventory and read-only peer discovery; it is not yet a complete feature-parity or security-audited product.
 
 > [!IMPORTANT]
-> **Release gate — not production-ready yet.** The React dashboard currently uses synthetic data and browser-local state; it is not connected to the FastAPI backend. The Electron installer currently contains only the read-only audit client and requires a separately running API. Do not use the current release to manage real infrastructure. GitHub Pages intentionally remains a demo only. A production release requires real UI/API integration, a self-contained installer (or a documented server deployment), security/integration testing, persistent storage and backup/restore validation.
+> **Production scope is partial.** GitHub Pages and the default Vite development build remain a synthetic demo. The new PM2 production build uses authenticated API calls and does not load sample routers, peers, traffic, or audit events. It currently supports login, real router/Linux inventory, and read-only RouterOS peer discovery; router/server registration forms, full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end tests, and a full production security review are still outstanding. The Electron installer remains a separate read-only audit client, not the complete product. Keep live mutations disabled and deploy behind TLS on a restricted management network.
 
 <p align="center">
   <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the frontend demo →</strong></a>
@@ -18,6 +18,7 @@
 - [What is implemented](#what-is-implemented)
 - [Architecture](#architecture)
 - [Frontend demo](#frontend-demo)
+- [PM2 production host deployment](#pm2-production-host-deployment)
 - [Backend capabilities](#backend-capabilities)
 - [API overview](#api-overview)
 - [Quick start](#quick-start)
@@ -34,7 +35,7 @@
 
 | Area | Status | Notes |
 |---|---|---|
-| React dashboard | Demo only | Responsive pages, synthetic data, local browser persistence; not connected to the API |
+| React dashboard | Two build modes | Default mode is the Pages/dev demo; `VITE_APP_MODE=production` selects a separate API-backed UI with no synthetic seed records |
 | Authentication | Implemented in API | JWT access tokens, rotating/revocable refresh tokens, Argon2 password hashing |
 | Authorization | Implemented in API | Admin, operator, and viewer roles |
 | Database | Implemented | SQLAlchemy models and Alembic migrations; schema is not auto-mutated at app startup |
@@ -133,6 +134,21 @@ The audit endpoint is `GET /api/v1/routers/{router_id}/audit` and requires an ad
 **Audit limitations:** this is a configuration review, not a penetration test. It does not exploit vulnerabilities, change settings, validate actual packet flow, or query a live CVE/vendor-advisory feed. RouterOS version support must be verified against official MikroTik advisories. Findings about input firewall rules are indicators for manual review, not proof of internet exposure. Exported reports can contain router addresses and configuration evidence; store them as sensitive operational data.
 
 The configuration UI/API is not yet wired into this desktop audit client. The continue action opens the backend API documentation; it does not silently apply or change any settings.
+
+## PM2 production host deployment
+
+For a Linux host, the repository now includes a one-command PM2 deployment path. It builds a separate API-backed UI, initializes an empty persistent database, provisions the first admin account, applies Alembic migrations, and starts the FastAPI service under PM2. It does not deploy the GitHub Pages demo or seed demo records.
+
+~~~bash
+# Install Node.js 20+, Python 3.11+, curl and PM2 for the deployment user first.
+git clone https://github.com/nestho/wireguard-manager.git
+cd wireguard-manager
+bash scripts/deploy-production.sh
+~~~
+
+The script prompts for the initial admin credentials, generates unique JWT and encryption keys, creates the initial admin once, removes bootstrap credentials, and binds the service to `127.0.0.1:8000`. Put it behind a TLS reverse proxy before remote access. PM2 operations: `pm2 status`, `pm2 logs wireguard-manager`, `pm2 restart wireguard-manager`, `pm2 save`. Full steps and limitations: [Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md).
+
+**Important:** this production UI is an initial live-data slice, not the completed full management product. It is currently read-only for router peers and does not provide the full CRUD/peer lifecycle/audit/traffic/diagnostics UI. Keep all mutation flags disabled. Back up both `data/wireguard-manager.db` and `WGM_ENCRYPTION_KEY` securely; do not expose port 8000 publicly.
 
 ## Backend capabilities
 

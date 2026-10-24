@@ -38,10 +38,12 @@ JWT signing secret:
 python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 ```
 
-Fernet encryption key:
+Fernet encryption key (prepare an isolated venv if the package is not already available):
 
 ```bash
-python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+python3 -m venv .venv
+.venv/bin/python -m pip install cryptography
+.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
 Paste the actual outputs into `WGM_JWT_SECRET` and `WGM_ENCRYPTION_KEY`. Do not use the example placeholders or reuse one value for both settings.

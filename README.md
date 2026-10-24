@@ -142,7 +142,7 @@ The configuration UI/API is not yet wired into this desktop audit client. The co
 For a Linux host, the repository now includes a one-command PM2 deployment path. It builds a separate API-backed UI, initializes an empty persistent database, provisions the first admin account, applies Alembic migrations, and starts the FastAPI service under PM2. It does not deploy the GitHub Pages demo or seed demo records.
 
 ~~~bash
-# Install Node.js 20+, Python 3.11+, curl and PM2 for the deployment user first.
+# Install Node.js 20.19+ or 22.12+, Python 3.11+, curl and PM2 for the deployment user first.
 git clone https://github.com/nestho/wireguard-manager.git
 cd wireguard-manager
 bash scripts/deploy-production.sh
@@ -233,7 +233,7 @@ Most routes require a Bearer access token; role requirements and body fields are
 ## Quick start
 
 ### Requirements
-- Node.js 20+ and npm for the frontend.
+- Node.js 20.19+ or 22.12+ and npm for the frontend.
 - Python 3.11+ for the backend.
 - A supported SQLAlchemy database. SQLite is the local-development default.
 - For live RouterOS access: network reachability, a dedicated RouterOS account, and a valid HTTPS certificate.

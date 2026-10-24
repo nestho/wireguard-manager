@@ -82,6 +82,7 @@ log "First-run admin bootstrap, if configured, must be invoked once over the pri
  .env || die "WGM_JWT_SECRET must be set to a unique random secret of at least 32 characters."
 grep -Eq '^WGM_JWT_SECRET=(REPLACE|CHANGE_ME|example|changeme)' .env && die "Replace the JWT placeholder with a generated random secret."
 grep -Eq '^WGM_BOOTSTRAP_ADMIN_USERNAME=(CHANGE_ME|REPLACE|example)' .env && die "Replace the bootstrap admin username placeholder."
+grep -Eq '^WGM_BOOTSTRAP_ADMIN_PASSWORD=(REPLACE|CHANGE_ME|example|changeme)' .env && die "Replace the bootstrap admin password placeholder."
 grep -Eq '^WGM_ENCRYPTION_KEY=.{40,}$' .env || die "WGM_ENCRYPTION_KEY must be set to a valid Fernet key."
 grep -Eq '^WGM_DATABASE_URL=.+$' .env || die "WGM_DATABASE_URL must be explicitly configured for persistent production storage."
 grep -Eq '^WGM_ALLOWED_ORIGINS=.+$' .env || die "Set WGM_ALLOWED_ORIGINS to the exact production origin."

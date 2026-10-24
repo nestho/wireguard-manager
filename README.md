@@ -51,10 +51,12 @@
 ## Architecture
 
 ~~~text
-Browser
-  └── React + TypeScript + Vite frontend
-      └── Static demo data and browser-local state only
-          (no API calls to the backend yet)
+GitHub Pages / default Vite build
+  └── React demo with synthetic data and browser-local state
+
+Production host (VITE_APP_MODE=production)
+  └── React UI → same-origin authenticated FastAPI endpoints
+      └── SQLAlchemy database and live RouterOS/Linux providers
 
 FastAPI backend
   ├── JWT authentication and role checks
@@ -64,7 +66,7 @@ FastAPI backend
   └── Audit events ─────── hash-linked database records
 ~~~
 
-The frontend and API are separate deliverables today. The demo's routers, peers, traffic charts, diagnostics, and audit events are illustrative; they do not represent the database or live infrastructure. API operations must be invoked directly through the API or another client until frontend-to-API integration is implemented.
+The default demo build's routers, peers, traffic charts, diagnostics, and audit events are illustrative. The production build is a separate entry point that authenticates against the API and displays real router/Linux inventory and read-only router peer results. The production UI is intentionally incomplete and does not yet expose the full API feature set.
 
 ## Frontend demo
 
@@ -353,7 +355,7 @@ wireguard-manager/
 
 A release must not be described as production-ready until all of the following have been implemented and verified. CI passing on its own is not sufficient.
 
-- [ ] Replace mock router/device/traffic/diagnostic/audit state in the React app with authenticated API calls; add explicit demo mode that cannot be mistaken for live data.
+- [ ] Complete API integration across all production UI views (the current production UI covers authentication, router/Linux inventory, and read-only RouterOS peer discovery only); keep demo and production modes explicitly separate.
 - [ ] Deliver the full management UI in the desktop application, not only the read-only audit window.
 - [ ] Ship the backend with the desktop application or provide a tested, versioned server deployment. The user must not need to manually start an API process for the desktop bundle.
 - [ ] Implement first-run setup, secure admin provisioning, session expiry/refresh/logout, role-aware controls, and safe secret handling.
@@ -367,7 +369,7 @@ A release must not be described as production-ready until all of the following h
 
 ## Known limitations and roadmap
 
-- [ ] Connect the frontend to the authenticated API and replace mock state with explicit live/demo modes.
+- [ ] Complete the API-backed production UI for registration, peer lifecycle, traffic, diagnostics, audit events, and role-aware workflows.
 - [ ] Add frontend authentication/session handling and role-aware UI.
 - [ ] Add integration tests against supported RouterOS versions and Linux distribution/sudo combinations.
 - [ ] Add robust reconciliation for timeout-after-write and failed rollback scenarios.

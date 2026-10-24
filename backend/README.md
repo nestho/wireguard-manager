@@ -1,6 +1,6 @@
 # WireGuard Manager API
 
-FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses the authenticated API-backed UI and serves it from FastAPI.
+FastAPI backend for WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses an authenticated API-backed UI served by a PM2-managed static web process that proxies same-origin API requests to FastAPI.
 
 > [!WARNING]
 > The PM2 deployment path and API-backed production UI are implemented, and CI covers frontend builds, known demo-fixture checks, migrations, and backend tests. This is not a security certification or proof of compatibility with live infrastructure. The production UI includes peer lifecycle, ACL, config/QR, diagnostics, router audit, user management, and audit browsing workflows, but live peer creation/revocation, Linux package installation, and optimizer apply operations remain gated off by default. Real-device end-to-end/failure-injection tests, rate limiting, timeout/rollback reconciliation, backup/restore drills, and off-host audit retention remain release gates.

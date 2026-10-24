@@ -20,7 +20,8 @@
 - [What is implemented](#what-is-implemented)
 - [Architecture](#architecture)
 - [Frontend demo](#frontend-demo)
-- [PM2 production host deployment](#pm2-production-host-deployment)
+- [Production deployment](#production-deployment)
+- [PM2 process operations](#pm2-process-operations)
 - [Backend capabilities](#backend-capabilities)
 - [API overview](#api-overview)
 - [Quick start](#quick-start)
@@ -317,7 +318,7 @@ All environment variables use the WGM_ prefix. Defaults are intentionally restri
 | WGM_ACCESS_TOKEN_MINUTES | Access-token lifetime | 15 |
 | WGM_BOOTSTRAP_ADMIN_USERNAME | Initial admin account name | Empty; configure only for one-time bootstrap |
 | WGM_BOOTSTRAP_ADMIN_PASSWORD | Initial admin password | Empty; remove from environment after bootstrap |
-| WGM_ALLOWED_ORIGINS | Allowed browser origins | http://localhost:5173; frontend integration is not yet implemented |
+| WGM_ALLOWED_ORIGINS | Allowed browser origins | Exact external origin, e.g. `https://vpn-manager.example.com`; production UI uses same-origin `/api` proxy |
 | WGM_ALLOW_PUBLIC_ROUTER_HOSTS | Allow public RouterOS host IPs | false; keep false unless egress controls are reviewed |
 | WGM_ALLOW_PUBLIC_LINUX_HOSTS | Allow public Linux SSH target IPs | false; keep false unless egress controls are reviewed |
 | WGM_ENABLE_PEER_MUTATIONS | Enable RouterOS peer create/revoke | false; keep disabled until device-specific integration tests pass |

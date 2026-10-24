@@ -154,7 +154,7 @@ pm2 logs wireguard-manager-api
 pm2 logs wireguard-manager-web
 pm2 restart wireguard-manager-api
 pm2 restart wireguard-manager-web
-pm2 reload ecosystem.config.cjs --update-env
+pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 ```
 

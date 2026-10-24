@@ -26,7 +26,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install .
 
 log "Installing locked frontend dependencies"
-npm ci
+npm install --no-audit --no-fund
 
 log "Building the production-only frontend (demo dashboard is not an entry point)"
 npm run build:production

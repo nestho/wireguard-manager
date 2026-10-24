@@ -7,7 +7,7 @@ This deployment path runs FastAPI and serves the production React UI from the sa
 ## Requirements
 
 - Linux host (Ubuntu/Debian recommended) with a dedicated unprivileged service account.
-- Node.js 20+, npm, Python 3.11+, curl, Git and PM2 installed for that account.
+- Node.js 20.19+ or 22.12+, npm, Python 3.11+, curl, Git and PM2 installed for that account.
 - Network access to package registries during installation.
 - A TLS reverse proxy such as Nginx/Caddy for remote access. The app binds only to 127.0.0.1:8000.
 - Egress policy allowing access only to intended RouterOS management and SSH networks.

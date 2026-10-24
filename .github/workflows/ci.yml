@@ -34,6 +34,17 @@ jobs:
         run: npm run build:production
       - name: Rebuild demo for the Pages artifact
         run: npm run build
+      - name: Build isolated production frontend
+        run: |
+          npm run build:production
+          test -f dist-production/index.production.html
+          ! grep -R -E 'Demo workspace initialized|dev-001|Staging Gateway|wg-manager-demo-v2' dist-production --include='*.js' --include='*.html'
+          bash -n scripts/deploy-production.sh
+          node --check scripts/serve-production.mjs
+          node --check ecosystem.config.cjs
+      - name: Build Linux desktop package
+        if: runner.os == 'Linux'
+        run: npm run desktop:build
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

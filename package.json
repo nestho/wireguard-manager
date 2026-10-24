@@ -9,7 +9,8 @@
     "build:production": "tsc -b && VITE_APP_MODE=production vite build",
     "preview": "vite preview",
     "desktop:dev": "electron .",
-    "desktop:build": "electron-builder --publish never"
+    "desktop:build": "electron-builder --publish never",
+    "build:production": "tsc -b && vite build --config vite.production.config.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

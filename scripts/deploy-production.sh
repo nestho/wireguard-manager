@@ -1,121 +1,100 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-umask 077
-
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+trap 'rc=$?; printf "[ERROR] deployment failed at line %s (exit %s). Existing PM2 processes were not intentionally stopped.\n" "$LINENO" "$rc" >&2; exit "$rc"' ERR
 
-log() { printf '\n[%s] %s\n' "$(date '+%F %T')" "$*"; }
-die() { printf '\n[ERROR] %s\n' "$*" >&2; exit 1; }
-need() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
+[[ -f .env ]] || die "Missing .env. Copy .env.production.example to .env and configure unique production secrets first."
+chmod 600 .env
+[[ -f alembic.ini ]] || die "alembic.ini was not found at repository root."
+command -v node >/dev/null || die "Node.js is required."
+command -v npm >/dev/null || die "npm is required."
+command -v python3 >/dev/null || die "Python 3 is required."
+command -v pm2 >/dev/null || die "PM2 is required. Install it globally before deployment."
+command -v curl >/dev/null || die "curl is required for health checks."
+node -e 'const [a]=process.versions.node.split(".").map(Number);if(a<20)process.exit(1)' || die "Node.js 20+ is required."
+python3 -c 'import sys;sys.exit(0 if sys.version_info >= (3,11) else 1)' || die "Python 3.11+ is required."
 
-need node
-need npm
-need python3
-need pm2
-need curl
-node -e 'const [major,minor]=process.versions.node.split(".").map(Number); const ok=(major===20 && minor>=19) || (major===22 && minor>=12) || major>22; process.exit(ok ? 0 : 1)' || die "Node.js 20.19+ or 22.12+ is required."
-python3 - <<'PY'
-import sys
-if sys.version_info < (3, 11):
-    raise SystemExit("Python 3.11+ is required.")
-PY
-
-if [[ ! -f .env ]]; then
-  log "Creating a new production .env with unique secrets."
-  mkdir -p data logs
-  read -r -p "Initial administrator username: " ADMIN_USER
-  [[ -n "$ADMIN_USER" ]] || die "Admin username cannot be empty."
-  read -r -s -p "Initial administrator password (minimum 12 characters): " ADMIN_PASS
-  printf '\n'
-  [[ "${#ADMIN_PASS}" -ge 12 ]] || die "Password must contain at least 12 characters."
-  read -r -s -p "Confirm administrator password: " ADMIN_CONFIRM
-  printf '\n'
-  [[ "$ADMIN_PASS" == "$ADMIN_CONFIRM" ]] || die "Passwords do not match."
-
-  [[ -d .venv ]] || python3 -m venv .venv
-  .venv/bin/python -m pip install --upgrade pip >/dev/null
-  .venv/bin/python -m pip install 'cryptography>=43,<47' >/dev/null
-  ADMIN_PASS_ESC="$(printf '%s' "$ADMIN_PASS" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read(), ensure_ascii=False))')"
-  JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-  ENC_KEY="$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
-
-  cat > .env <<EOF
-WGM_ENV=production
-WGM_DATABASE_URL=sqlite:///$ROOT/data/wireguard-manager.db
-WGM_JWT_SECRET=$JWT_SECRET
-WGM_ENCRYPTION_KEY=$ENC_KEY
-WGM_ACCESS_TOKEN_MINUTES=15
-WGM_BOOTSTRAP_ADMIN_USERNAME=$ADMIN_USER
-WGM_BOOTSTRAP_ADMIN_PASSWORD=$ADMIN_PASS_ESC
-WGM_ALLOWED_ORIGINS=
-WGM_ALLOW_PUBLIC_ROUTER_HOSTS=false
-WGM_ALLOW_PUBLIC_LINUX_HOSTS=false
-WGM_ENABLE_PEER_MUTATIONS=false
-WGM_ENABLE_LINUX_MUTATIONS=false
-WGM_ENABLE_LINUX_OPTIMIZER_MUTATIONS=false
-EOF
-  unset ADMIN_PASS ADMIN_PASS_ESC ADMIN_CONFIRM JWT_SECRET ENC_KEY
-  chmod 600 .env
-  printf '%s\n' "$ADMIN_USER" > .first-admin-username
-  chmod 600 .first-admin-username
+grep -Eq '^WGM_JWT_SECRET=.{32,}$' .env || die "WGM_JWT_SECRET must be at least 32 characters."
+grep -Eq '^WGM_JWT_SECRET=(REPLACE|CHANGE_ME|example|changeme)' .env && die "Replace the JWT placeholder with a generated random secret."
+grep -Eq '^WGM_ENCRYPTION_KEY=.{40,}$' .env || die "WGM_ENCRYPTION_KEY must be a valid Fernet key."
+grep -Eq '^WGM_ENCRYPTION_KEY=(REPLACE|CHANGE_ME|example|changeme)' .env && die "Replace the encryption-key placeholder."
+grep -Eq '^WGM_DATABASE_URL=.+$' .env || die "Set WGM_DATABASE_URL to a persistent database."
+grep -Eq '^WGM_ALLOWED_ORIGINS=.+$' .env || die "Set WGM_ALLOWED_ORIGINS to the exact production origin."
+if grep -Eq '^WGM_BOOTSTRAP_ADMIN_USERNAME=.+$' .env; then
+  grep -Eq '^WGM_BOOTSTRAP_ADMIN_PASSWORD=.{12,}$' .env || die "Bootstrap password must be at least 12 characters."
+  grep -Eq '^WGM_BOOTSTRAP_ADMIN_USERNAME=(CHANGE_ME|REPLACE|example)' .env && die "Replace the bootstrap username placeholder."
+  grep -Eq '^WGM_BOOTSTRAP_ADMIN_PASSWORD=(REPLACE|CHANGE_ME|example|changeme)' .env && die "Replace the bootstrap password placeholder."
 fi
 
-# Refuse to start the demo/dev backend or silently use placeholder secrets.
-grep -q '^WGM_ENV=production$' .env || die "The existing .env must contain WGM_ENV=production; refusing to start in development/demo mode."
-grep -Eq '^WGM_JWT_SECRET=.{32,}$' .env || die "WGM_JWT_SECRET is missing or too short in .env."
-grep -Eq '^WGM_ENCRYPTION_KEY=.+$' .env || die "WGM_ENCRYPTION_KEY is missing in .env."
-
-[[ -d .venv ]] || python3 -m venv .venv
-mkdir -p data logs
-chmod 700 data logs
-
-log "Installing backend dependencies."
+log "Creating/updating isolated Python environment"
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install .
+.venv/bin/python - <<'PY'
+from pathlib import Path
+from cryptography.fernet import Fernet
+values = {}
+for line in Path(".env").read_text().splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        values[key] = value
+Fernet(values["WGM_ENCRYPTION_KEY"].encode("ascii"))
+if len(values["WGM_JWT_SECRET"]) < 32:
+    raise SystemExit("WGM_JWT_SECRET is too short")
+PY
 
-log "Installing frontend dependencies."
-npm install
-log "Building production UI (API-backed; no demo seed data)."
-VITE_APP_MODE=production npm run build
+log "Installing frontend dependencies"
+npm install --no-audit --no-fund
 
-log "Applying reviewed Alembic migrations."
-.venv/bin/alembic upgrade head
+log "Building the production-only frontend (demo dashboard is not an entry point)"
+npm run build:production
+[[ -f dist-production/index.production.html ]] || die "Production build did not create dist-production/index.production.html."
+if grep -R -E 'Demo workspace initialized|dev-001|Staging Gateway|sample routers loaded|wg-manager-demo-v2' dist-production --include='*.js' --include='*.html'; then
+  die "Synthetic demo fixture markers were found in the production bundle."
+fi
 
-log "Starting/reloading API under PM2."
+log "Applying database migrations (no demo seed or database reset)"
+PYTHONPATH=backend .venv/bin/alembic upgrade head
+
+log "Starting/reloading production processes through PM2"
 pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 
-if [[ -f .first-admin-username ]]; then
-  log "Waiting for API before one-time admin bootstrap."
-  for _ in $(seq 1 40); do
-    if curl --silent --fail http://127.0.0.1:8000/healthz >/dev/null; then break; fi
-    sleep 1
-  done
-  curl --silent --show-error --fail http://127.0.0.1:8000/healthz >/dev/null || die "API did not become healthy; inspect PM2 logs."
-  BOOTSTRAP_CODE="$(curl --silent --show-error --output /tmp/wgm-bootstrap-response.json --write-out '%{http_code}' -X POST http://127.0.0.1:8000/api/v1/admin/bootstrap)"
-  if [[ "$BOOTSTRAP_CODE" != "201" ]]; then
-    cat /tmp/wgm-bootstrap-response.json >&2 || true
-    die "Admin bootstrap failed (HTTP $BOOTSTRAP_CODE). Inspect the DB and logs; do not rerun blindly."
-  fi
-  python3 - "$ROOT/.env" <<'PY'
-import sys
+log "Checking local process health"
+for attempt in $(seq 1 20); do
+  if curl --fail --silent http://127.0.0.1:8000/healthz >/dev/null && curl --fail --silent http://127.0.0.1:4173/healthz >/dev/null; then break; fi
+  [[ "$attempt" -lt 20 ]] || die "Health checks failed. Inspect PM2 logs for both processes."
+  sleep 2
+done
+curl --fail --silent http://127.0.0.1:8000/api/v1/health
+printf '\n'
+
+if grep -Eq '^WGM_BOOTSTRAP_ADMIN_USERNAME=.+$' .env && grep -Eq '^WGM_BOOTSTRAP_ADMIN_PASSWORD=.+$' .env; then
+  log "Attempting one-time administrator bootstrap"
+  response_file="$(mktemp)"
+  response_code="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' -X POST http://127.0.0.1:8000/api/v1/admin/bootstrap || true)"
+  case "$response_code" in
+    201) log "Initial administrator created. Use the configured credentials." ;;
+    409) log "Database already contains a user; bootstrap was not repeated." ;;
+    *) cat "$response_file" >&2 || true; rm -f "$response_file"; die "Administrator bootstrap failed with HTTP $response_code." ;;
+  esac
+  rm -f "$response_file"
+  python3 - <<'PY'
 from pathlib import Path
-p = Path(sys.argv[1])
+p = Path(".env")
 lines = p.read_text().splitlines()
-lines = [line for line in lines if not line.startswith(("WGM_BOOTSTRAP_ADMIN_USERNAME=", "WGM_BOOTSTRAP_ADMIN_PASSWORD="))]
-p.write_text("\n".join(lines) + "\n")
-p.chmod(0o600)
+blocked = ("WGM_BOOTSTRAP_ADMIN_USERNAME=", "WGM_BOOTSTRAP_ADMIN_PASSWORD=")
+p.write_text("\n".join(line for line in lines if not line.startswith(blocked)) + "\n")
 PY
-  rm -f .first-admin-username /tmp/wgm-bootstrap-response.json
-  log "Initial admin created; bootstrap credentials removed from .env."
-  pm2 restart wireguard-manager --update-env
-  pm2 save
+  chmod 600 .env
+  log "Removed one-time bootstrap credentials from .env."
+else
+  log "No bootstrap credentials configured; no administrator account was created."
 fi
 
-log "Deployment complete."
-printf '\nProduction UI: http://127.0.0.1:8000\nAPI health: http://127.0.0.1:8000/healthz\n'
-printf 'PM2 status: pm2 status\nPM2 logs: pm2 logs wireguard-manager\n'
-printf 'Manage: pm2 restart wireguard-manager | pm2 stop wireguard-manager | pm2 save\n'
-printf '\nThe service binds to loopback. Put it behind a TLS reverse proxy before remote access.\n'
-printf 'Back up data/wireguard-manager.db and the WGM_ENCRYPTION_KEY in .env securely.\n'
+log "Deployment health checks passed."
+log "Web listener: 127.0.0.1:4173; API listener: 127.0.0.1:8000. Put a TLS reverse proxy in front before remote use."

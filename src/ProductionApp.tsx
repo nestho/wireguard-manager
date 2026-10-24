@@ -1,164 +1,94 @@
-import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer, type ManagedPeer, type LinuxPeer, type AuditEvent } from "./services/production-api";
 
-type User = { username: string; role: string };
-type RouterItem = { id: number; name: string; host: string; port: number; username: string; tls_verify: boolean; last_status: string; created_at: string };
-type LinuxServer = { id: number; name: string; host: string; port: number; username: string; distro_id?: string | null; distro_version?: string | null; package_manager?: string | null; wireguard_installed: boolean; last_status: string; last_check_at?: string | null };
-type ApiError = { detail?: string };
-const api = async <T,>(path: string, init: RequestInit = {}, token?: string): Promise<T> => {
-  const headers = new Headers(init.headers); headers.set("Accept", "application/json");
-  if (init.body) headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", "Bearer " + token);
-  const response = await fetch(path, { ...init, headers, credentials: "same-origin", cache: "no-store" });
-  if (!response.ok) {
-    let message = "Request failed (" + response.status + ")";
-    try { const body = await response.json() as ApiError; if (body.detail) message = body.detail; } catch { /* non-JSON error */ }
-    throw new Error(message);
-  }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
-};
-
+type Tab = "overview" | "routers" | "linux" | "traffic" | "diagnostics" | "users";
 export default function ProductionApp() {
-  const [user, setUser] = useState<User | null>(null);
-  const [access, setAccess] = useState(() => sessionStorage.getItem("wgm_access") || "");
-  const [refresh, setRefresh] = useState(() => sessionStorage.getItem("wgm_refresh") || "");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [routers, setRouters] = useState<RouterItem[]>([]);
+  const [session, setCurrentSession] = useState(getSession());
+  const [tab, setTab] = useState<Tab>("overview");
+  const [routers, setRouters] = useState<RouterRecord[]>([]);
   const [servers, setServers] = useState<LinuxServer[]>([]);
-  const [selectedRouter, setSelectedRouter] = useState<number | null>(null);
-  const [routerDetail, setRouterDetail] = useState<unknown>(null);
-  const [notice, setNotice] = useState("");
+  const [selectedRouter, setSelectedRouter] = useState<number | "">("");
+  const [traffic, setTraffic] = useState<TrafficPeer[]>([]);
+  const [managedPeers, setManagedPeers] = useState<ManagedPeer[]>([]);
+  const [selectedServer, setSelectedServer] = useState<number | "">("");
+  const [linuxPeers, setLinuxPeers] = useState<LinuxPeer[]>([]);
+  const [linuxPeerForm, setLinuxPeerForm] = useState({interface_name:"wg0",name:"",allowed_address:"",access_networks:""});
+  const [linuxPeerPreview, setLinuxPeerPreview] = useState(false);
+  const [linuxAclEdit, setLinuxAclEdit] = useState<Record<number,string>>({});
+  const [peerForm, setPeerForm] = useState({interface_name:"wg0",name:"",allowed_address:"",access_networks:"",endpoint:""});
+  const [peerPreview, setPeerPreview] = useState(false);
+  const [aclEdit, setAclEdit] = useState<Record<number,string>>({});
+  const [clientConfig, setClientConfig] = useState({server_public_key:"",endpoint:"",dns:"1.1.1.1",allowed_ips:"0.0.0.0/0, ::/0",persistent_keepalive:"25"});
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"routers" | "linux">("routers");
-  const [adding, setAdding] = useState<"router" | "linux" | null>(null);
-  const [health, setHealth] = useState("Checking API…");
+  const [routerForm, setRouterForm] = useState({name:"",host:"",port:"443",username:"",password:""});
+  const [linuxForm, setLinuxForm] = useState({name:"",host:"",port:"22",username:"",ssh_private_key:"",host_key_fingerprint:""});
+  const [lastResult, setLastResult] = useState<unknown>(null);
+  const [loginForm, setLoginForm] = useState({username:"",password:""});
+  const [userForm, setUserForm] = useState({username:"",password:"",role:"viewer" as "admin"|"operator"|"viewer"});
+  const [health, setHealth] = useState("checking");
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
-  const clearSession = useCallback(() => {
-    sessionStorage.removeItem("wgm_access"); sessionStorage.removeItem("wgm_refresh");
-    setAccess(""); setRefresh(""); setUser(null); setRouters([]); setServers([]); setRouterDetail(null);
-  }, []);
-  const loadData = useCallback(async (token: string) => {
-    const [me, routerList, serverList] = await Promise.all([
-      api<User & { is_active: boolean }>("/api/v1/auth/me", {}, token),
-      api<RouterItem[]>("/api/v1/routers", {}, token),
-      api<LinuxServer[]>("/api/v1/linux-servers", {}, token),
-    ]);
-    setUser({ username: me.username, role: me.role }); setRouters(routerList); setServers(serverList);
-    setHealth("Connected to production API");
-  }, []);
+  const run = async (fn:()=>Promise<unknown>, success?:string) => {
+    setBusy(true); setError(""); setMessage("");
+    try { const result = await fn(); if (success) setMessage(success); setLastResult(result); return result; }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); return null; }
+    finally { setBusy(false); }
+  };
+  const load = async () => {
+    const results = await Promise.allSettled([api.routers(), api.linuxServers(), api.health()]);
+    if (results[0].status === "fulfilled") {
+      const loadedRouters = results[0].value;
+      setRouters(loadedRouters);
+      const firstRouterId = loadedRouters[0]?.id;
+      setSelectedRouter(current => current || firstRouterId || "");
+    } else setError(results[0].reason instanceof Error ? results[0].reason.message : String(results[0].reason));
+    if (results[1].status === "fulfilled") setServers(results[1].value);
+    if (results[2].status === "fulfilled") setHealth(results[2].value.status);
+    else setHealth("unavailable");
+  };
+  useEffect(() => { if (session) void load(); }, [session]);
+  useEffect(() => { if (!session) return; const id=window.setInterval(()=>void load(),30000); return ()=>window.clearInterval(id); }, [session]);
+  useEffect(() => { if (session && selectedRouter) void api.managedPeers(selectedRouter).then(setManagedPeers).catch(e=>setError(e instanceof Error?e.message:String(e))); else setManagedPeers([]); }, [session,selectedRouter]);
+  useEffect(() => { if(session && selectedServer) void api.managedLinuxPeers(selectedServer).then(setLinuxPeers).catch(e=>setError(e instanceof Error?e.message:String(e))); else setLinuxPeers([]); },[session,selectedServer]);
+  const signIn = async (e:FormEvent) => { e.preventDefault(); await run(async()=>{ const s=await login(loginForm.username,loginForm.password); setCurrentSession(s); await load(); return s; }); };
+  const submitRouter = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.addRouter({...routerForm,port:Number(routerForm.port),tls_verify:true}),"Router registered. Test its connection before relying on it."); if(result) {setRouterForm({name:"",host:"",port:"443",username:"",password:""});await load();} };
+  const submitLinux = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.registerLinux({...linuxForm,port:Number(linuxForm.port)}),"Linux server registered. Inspect it to verify host identity and capabilities."); if(result){setLinuxForm({name:"",host:"",port:"22",username:"",ssh_private_key:"",host_key_fingerprint:""});await load();} };
+  const doLogout = async () => { await run(()=>logout()); setSession(null); setCurrentSession(null); setRouters([]); setServers([]); setTraffic([]); };
+  const loadTraffic = async () => { if (!selectedRouter) return; const r=await run(()=>api.routerTraffic(selectedRouter)); if(r && typeof r==="object" && "peers" in r) setTraffic((r as {peers:TrafficPeer[]}).peers); };
+  const loadAudit = async () => { const r=await run(()=>api.auditEvents()); if(Array.isArray(r))setAuditEvents(r as AuditEvent[]); };
+  const previewPeer = async () => { if(!selectedRouter)return; const body={interface_name:peerForm.interface_name,name:peerForm.name,allowed_address:peerForm.allowed_address,access_networks:peerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean),endpoint:peerForm.endpoint||null}; const result=await run(()=>api.previewPeer(selectedRouter,body),"Peer preview passed. Review the response before explicitly creating the peer."); setPeerPreview(!!result); };
+  const createPeer = async () => { if(!selectedRouter||!peerPreview)return; const body={interface_name:peerForm.interface_name,name:peerForm.name,allowed_address:peerForm.allowed_address,access_networks:peerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean),endpoint:peerForm.endpoint||null}; const result=await run(()=>api.createPeer(selectedRouter,body),"Peer creation request completed."); if(result){setPeerForm({interface_name:"wg0",name:"",allowed_address:"",access_networks:"",endpoint:""});setPeerPreview(false);setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[]));} };
+  const revokePeer = async (peer:ManagedPeer) => { if(!selectedRouter||!window.confirm("Confirm revocation of peer \""+peer.name+"\"? The remote peer will be disabled and its stored private key erased."))return; const result=await run(()=>api.revokePeer(selectedRouter,peer.id),"Peer revocation completed."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
+  const saveAcl = async (peer:ManagedPeer) => { if(!selectedRouter)return; const networks=(aclEdit[peer.id]??peer.access_networks.join("\n")).split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); const result=await run(()=>api.setPeerAcl(selectedRouter,peer.id,networks),"Peer destination ACL updated."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
+  const downloadPeer = async (peer:ManagedPeer,format:"config"|"qr") => { if(!selectedRouter)return; await run(()=>api.downloadClientConfig(selectedRouter,peer.id,{...clientConfig,persistent_keepalive:Number(clientConfig.persistent_keepalive)},format),format==="config"?"Client configuration downloaded.":"Client QR image downloaded."); };
+  const previewLinuxPeer = async () => { if(!selectedServer)return; const body={interface_name:linuxPeerForm.interface_name,name:linuxPeerForm.name,allowed_address:linuxPeerForm.allowed_address,access_networks:linuxPeerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)}; const result=await run(()=>api.previewLinuxPeer(selectedServer,body),"Linux peer preview passed. Review it before explicitly creating the peer.");setLinuxPeerPreview(!!result); };
+  const createLinuxPeer = async () => { if(!selectedServer||!linuxPeerPreview)return;const body={interface_name:linuxPeerForm.interface_name,name:linuxPeerForm.name,allowed_address:linuxPeerForm.allowed_address,access_networks:linuxPeerForm.access_networks.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)};const result=await run(()=>api.createLinuxPeer(selectedServer,body),"Linux peer creation request completed.");if(result){setLinuxPeerForm({interface_name:"wg0",name:"",allowed_address:"",access_networks:""});setLinuxPeerPreview(false);setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));}};
+  const revokeLinuxPeer = async(peer:LinuxPeer)=>{if(!selectedServer||!window.confirm("Confirm revocation of Linux peer \""+peer.name+"\"?"))return;const result=await run(()=>api.revokeLinuxPeer(selectedServer,peer.id),"Linux peer revocation completed.");if(result)setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));};
+  const saveLinuxAcl = async(peer:LinuxPeer)=>{if(!selectedServer)return;const networks=(linuxAclEdit[peer.id]??peer.access_networks.join("\n")).split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);const result=await run(()=>api.setLinuxPeerAcl(selectedServer,peer.id,networks),"Linux peer ACL updated.");if(result)setLinuxPeers(await api.managedLinuxPeers(selectedServer).catch(()=>[]));};
+  const downloadLinuxPeer = async(peer:LinuxPeer,format:"config"|"qr")=>{if(!selectedServer)return;await run(()=>api.downloadLinuxClientConfig(selectedServer,peer.id,{...clientConfig,persistent_keepalive:Number(clientConfig.persistent_keepalive)},format),format==="config"?"Linux client configuration downloaded.":"Linux client QR downloaded.");};
 
-  useEffect(() => { api<{status:string}>("/api/v1/health").then(() => setHealth("API healthy")).catch(() => setHealth("API unavailable")); }, []);
-  useEffect(() => {
-    if (!access) return;
-    loadData(access).catch(async () => {
-      if (!refresh) { clearSession(); return; }
-      try {
-        const rotated = await api<{access_token:string;refresh_token:string}>("/api/v1/auth/refresh", { method:"POST", body:JSON.stringify({refresh_token:refresh}) });
-        sessionStorage.setItem("wgm_access", rotated.access_token); sessionStorage.setItem("wgm_refresh", rotated.refresh_token);
-        setAccess(rotated.access_token); setRefresh(rotated.refresh_token); await loadData(rotated.access_token);
-      } catch { clearSession(); }
-    });
-  }, [access, refresh, loadData, clearSession]);
+  if (!session) return <main className="prod-shell"><header className="prod-header"><div><b>WireGuard Manager</b><span>Production control plane</span></div><span className="prod-state">Live API · no demo data</span></header><form className="prod-card prod-login" onSubmit={signIn}><h1>Sign in</h1><p>Use an account provisioned by your administrator. No default or demo account is created.</p><label>Username<input autoComplete="username" required value={loginForm.username} onChange={e=>setLoginForm({...loginForm,username:e.target.value})}/></label><label>Password<input type="password" autoComplete="current-password" required value={loginForm.password} onChange={e=>setLoginForm({...loginForm,password:e.target.value})}/></label><button disabled={busy} className="prod-primary">{busy?"Signing in…":"Sign in"}</button>{error&&<p className="prod-error" role="alert">{error}</p>}<small>API must be configured and reachable by this browser. There are no seeded credentials.</small></form></main>;
 
-  const login = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(""); setNotice("");
-    try {
-      const result = await api<{access_token:string;refresh_token:string;user:User}>("/api/v1/auth/login", { method:"POST", body:JSON.stringify({username,password}) });
-      sessionStorage.setItem("wgm_access", result.access_token); sessionStorage.setItem("wgm_refresh", result.refresh_token);
-      setAccess(result.access_token); setRefresh(result.refresh_token); setPassword(""); await loadData(result.access_token);
-    } catch (e) { setError(e instanceof Error ? e.message : "Login failed"); }
-    finally { setBusy(false); }
-  };
-  const logout = async () => {
-    try { if (refresh) await api("/api/v1/auth/logout", { method:"POST", body:JSON.stringify({refresh_token:refresh}) }); } catch { /* clear local session even if API is unavailable */ }
-    clearSession(); setNotice("Signed out.");
-  };
-  const inspectRouter = async (id: number) => {
-    setSelectedRouter(id); setRouterDetail(null); setError("");
-    try { setRouterDetail(await api("/api/v1/routers/" + id + "/wireguard/peers", {}, access)); }
-    catch (e) { setError(e instanceof Error ? e.message : "Unable to read router"); }
-  };
-  const testRouter = async (id: number) => {
-    setSelectedRouter(id); setBusy(true); setError("");
-    try {
-      const result = await api("/api/v1/routers/" + id + "/test", { method:"POST" }, access);
-      setRouterDetail({ connection_test: result }); await loadData(access); setNotice("Router connection test completed.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Router test failed"); }
-    finally { setBusy(false); }
-  };
-  const inspectLinuxServer = async (id: number) => {
-    setSelectedRouter(null); setBusy(true); setError(""); setRouterDetail(null);
-    try {
-      const result = await api("/api/v1/linux-servers/" + id + "/inspect", { method:"POST" }, access);
-      setRouterDetail({ linux_server_inspection: result }); await loadData(access); setNotice("Linux server inspection completed.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Linux server inspection failed"); }
-    finally { setBusy(false); }
-  };
-  const refreshInventory = async () => {
-    setBusy(true); setError("");
-    try { await loadData(access); setNotice("Inventory refreshed from the API."); }
-    catch (e) { setError(e instanceof Error ? e.message : "Refresh failed"); }
-    finally { setBusy(false); }
-  };
-  const registerResource = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!adding) return;
-    setBusy(true); setError("");
-    const form = new FormData(event.currentTarget);
-    try {
-      if (adding === "router") {
-        await api("/api/v1/routers", { method:"POST", body:JSON.stringify({
-          name:String(form.get("name") || "").trim(),
-          host:String(form.get("host") || "").trim(),
-          port:Number(form.get("port") || 443),
-          username:String(form.get("username") || "").trim(),
-          password:String(form.get("password") || ""),
-          tls_verify:true
-        }) }, access);
-      } else {
-        await api("/api/v1/linux-servers", { method:"POST", body:JSON.stringify({
-          name:String(form.get("name") || "").trim(),
-          host:String(form.get("host") || "").trim(),
-          port:Number(form.get("port") || 22),
-          username:String(form.get("username") || "").trim(),
-          ssh_private_key:String(form.get("ssh_private_key") || ""),
-          host_key_fingerprint:String(form.get("host_key_fingerprint") || "").trim()
-        }) }, access);
-      }
-      setAdding(null);
-      await loadData(access);
-      setNotice(adding === "router" ? "Router registered. Connection status remains unverified until tested." : "Linux server registered. SSH host-key pinning is saved; run an inspection before operations.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Registration failed"); }
-    finally { setBusy(false); }
-  };
-
-  return <main className="prod-shell">
-    <header className="prod-header"><div className="prod-brand"><span className="prod-mark">WG</span><div><h1>WireGuard Manager</h1><p>Production control plane · live API data only</p></div></div><span className="prod-health">{health}</span></header>
-    {error && <div className="prod-alert prod-error" role="alert">{error}<button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
-    {notice && <div className="prod-alert prod-success">{notice}<button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div>}
-    {!user ? <section className="prod-login"><div className="prod-kicker">AUTHENTICATED MANAGEMENT</div><h2>Sign in to your workspace</h2><p>No sample inventory is loaded in production mode. This view displays only records returned by your API.</p><form onSubmit={login}>
-      <label>Username<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required /></label>
-      <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required /></label>
-      <button className="prod-primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-    </form><small>Initial admin is provisioned once by the deployment script.</small></section>
-    : <><section className="prod-welcome"><div><div className="prod-kicker">LIVE WORKSPACE</div><h2>Welcome, {user.username}</h2><p>Role: <b>{user.role}</b> · Inventory is read directly from the API.</p></div><div className="prod-actions"><button onClick={refreshInventory} disabled={busy}>{busy ? "Refreshing…" : "Refresh inventory"}</button><button onClick={logout}>Sign out</button></div></section>
-    <section className="prod-stats"><article><span>Registered routers</span><strong>{routers.length}</strong><small>Persisted in backend database</small></article><article><span>Linux servers</span><strong>{servers.length}</strong><small>Persisted in backend database</small></article><article><span>Healthy routers</span><strong>{routers.filter(r=>r.last_status==="healthy").length}</strong><small>Last recorded status, not a live probe</small></article><article><span>WireGuard servers ready</span><strong>{servers.filter(s=>s.wireguard_installed).length}</strong><small>Based on last server inspection</small></article></section>
-    <section className="prod-panel"><div className="prod-panel-toolbar"><div><strong>Infrastructure inventory</strong><small>Live records from the backend database</small></div>{((view==="routers" && (user.role==="admin" || user.role==="operator")) || (view==="linux" && user.role==="admin")) && <button className="prod-primary" onClick={()=>setAdding(view==="routers"?"router":"linux")}>Register {view==="routers"?"router":"Linux server"}</button>}</div><div className="prod-tabs"><button className={view==="routers"?"active":""} onClick={()=>{setView("routers");setRouterDetail(null)}}>RouterOS routers ({routers.length})</button><button className={view==="linux"?"active":""} onClick={()=>{setView("linux");setRouterDetail(null)}}>Linux servers ({servers.length})</button></div>
-    {view==="routers" ? <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>Account</th><th>Last status</th><th>Action</th></tr></thead><tbody>{routers.map(r=><tr key={r.id}><td>{r.name}</td><td><code>{r.host}:{r.port}</code></td><td>{r.username}</td><td><span className={"prod-badge "+r.last_status}>{r.last_status}</span></td><td className="prod-row-actions"><button onClick={()=>inspectRouter(r.id)}>Read WireGuard peers</button>{(user.role==="admin" || user.role==="operator") && <button onClick={()=>testRouter(r.id)} disabled={busy}>Test connection</button>}</td></tr>)}{!routers.length&&<tr><td colSpan={5} className="prod-empty">No routers registered. The database is empty; no sample data is substituted.</td></tr>}</tbody></table></div>
-    : <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>SSH account</th><th>Distribution</th><th>WireGuard</th><th>Status</th><th>Action</th></tr></thead><tbody>{servers.map(s=><tr key={s.id}><td>{s.name}</td><td><code>{s.host}:{s.port}</code></td><td>{s.username}</td><td>{s.distro_id || "Not inspected"} {s.distro_version || ""}</td><td>{s.wireguard_installed?"Installed":"Unknown / absent"}</td><td><span className={"prod-badge "+s.last_status}>{s.last_status}</span></td><td>{(user.role==="admin" || user.role==="operator") && <button onClick={()=>inspectLinuxServer(s.id)} disabled={busy}>Inspect</button>}</td></tr>)}{!servers.length&&<tr><td colSpan={7} className="prod-empty">No Linux servers registered. No sample data is substituted.</td></tr>}</tbody></table></div>}
-    </section>
-    {adding && <div className="prod-modal-backdrop"><section className="prod-modal" role="dialog" aria-modal="true" aria-labelledby="prod-modal-title"><div className="prod-panel-title"><h3 id="prod-modal-title">Register {adding==="router"?"RouterOS router":"Linux server"}</h3><button type="button" onClick={()=>setAdding(null)} disabled={busy}>Cancel</button></div><p>Credentials are sent directly to the API over this same origin and are not saved in browser storage.</p><form className="prod-register-form" onSubmit={registerResource}>
-      <label>Display name<input name="name" maxLength={120} required /></label>
-      <label>Private management IP<input name="host" placeholder="192.168.1.10" inputMode="decimal" required /></label>
-      <label>{adding==="router"?"RouterOS HTTPS port":"SSH port"}<input name="port" type="number" min="1" max="65535" defaultValue={adding==="router"?443:22} required /></label>
-      <label>{adding==="router"?"RouterOS account":"SSH account"}<input name="username" autoComplete="off" required /></label>
-      {adding==="router" ? <label>RouterOS password<input name="password" type="password" autoComplete="new-password" required /></label> : <><label>SSH private key<textarea name="ssh_private_key" rows={7} autoComplete="off" spellCheck={false} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" required /></label><label>Verified SSH host-key fingerprint<input name="host_key_fingerprint" placeholder="SHA256:…" required /></label><small>Verify the SHA256 fingerprint through a trusted channel before registering the server.</small></>}
-      <div className="prod-form-actions"><button type="button" onClick={()=>setAdding(null)} disabled={busy}>Cancel</button><button className="prod-primary" disabled={busy}>{busy?"Registering…":"Register"}</button></div>
-    </form></section></div>}
-    {routerDetail !== null && <section className="prod-panel"><div className="prod-panel-title"><h3>Live WireGuard data · Router #{selectedRouter}</h3><button onClick={()=>setRouterDetail(null)}>Close</button></div><p>Read-only result from the registered router. Treat peer metadata as sensitive operational data.</p><pre>{JSON.stringify(routerDetail,null,2)}</pre></section>}
-    <p className="prod-footnote">Production mode does not use browser local storage, synthetic routers, sample peers, or demo audit events. Router peer reads are read-only. Mutations are not exposed in this initial production UI.</p></>}
-  </main>;
+  const tabs: {id:Tab;label:string}[]=[{id:"overview",label:"Overview"},{id:"routers",label:"RouterOS"},{id:"linux",label:"Linux servers"},{id:"traffic",label:"Live traffic"},{id:"diagnostics",label:"Diagnostics & audit"},{id:"users",label:"Users"}];
+  return <main className="prod-shell"><header className="prod-header"><div><b>WireGuard Manager</b><span>Production control plane</span></div><div className="prod-account"><span>{session.user.username} · {session.user.role}</span><span className={health==="ready"?"prod-state":"prod-state prod-warn"}>API {health}</span><button onClick={doLogout} className="prod-secondary">Sign out</button></div></header>
+    <nav className="prod-nav">{tabs.map(t=><button key={t.id} className={tab===t.id?"active":""} onClick={()=>setTab(t.id)}>{t.label}</button>)}<button onClick={()=>void load()} disabled={busy}>↻ Refresh</button></nav>
+    <section className="prod-content">
+      {message&&<div className="prod-success">{message}</div>}{error&&<div className="prod-error" role="alert">{error}</div>}
+      {tab==="overview"&&<><h1>Operational overview</h1><p className="prod-muted">Counts reflect records returned by the authenticated backend. No sample records are inserted.</p><div className="prod-stats"><article><span>Registered RouterOS devices</span><strong>{routers.length}</strong></article><article><span>Registered Linux servers</span><strong>{servers.length}</strong></article><article><span>Current user</span><strong>{session.user.role}</strong></article><article><span>API readiness</span><strong>{health}</strong></article></div><h2>Registered routers</h2><RecordTable empty="No routers registered yet." headers={["Name","Management endpoint","Status","Action"]} rows={routers.map(r=>[r.name, r.host+":"+r.port, r.last_status, <button key={r.id} onClick={()=>void run(()=>api.testRouter(r.id),"Router connectivity test completed.")} disabled={busy}>Test connection</button>])}/><h2>Registered Linux servers</h2><RecordTable empty="No Linux servers registered yet." headers={["Name","Management endpoint","Distribution","Status","Action"]} rows={servers.map(s=>[s.name,s.host+":"+s.port,[s.distro_id,s.distro_version].filter(Boolean).join(" ")||"Not inspected",s.last_status,<button key={s.id} onClick={()=>void run(()=>api.inspectLinux(s.id),"Server inspection completed.")} disabled={busy}>Inspect</button>])}/></>}
+      {tab==="routers"&&<><h1>RouterOS inventory</h1><p className="prod-muted">Router registration stores credentials encrypted on the API server. Connection tests and discovery query the real router.</p><form className="prod-card prod-form" onSubmit={submitRouter}><h2>Register router</h2><div className="prod-grid"><label>Display name<input required value={routerForm.name} onChange={e=>setRouterForm({...routerForm,name:e.target.value})}/></label><label>Host / IP<input required value={routerForm.host} onChange={e=>setRouterForm({...routerForm,host:e.target.value})}/></label><label>REST API HTTPS port<input type="number" min="1" max="65535" required value={routerForm.port} onChange={e=>setRouterForm({...routerForm,port:e.target.value})}/></label><label>RouterOS username<input required value={routerForm.username} onChange={e=>setRouterForm({...routerForm,username:e.target.value})}/></label><label className="prod-full">RouterOS password<input type="password" required autoComplete="new-password" value={routerForm.password} onChange={e=>setRouterForm({...routerForm,password:e.target.value})}/></label></div><button className="prod-primary" disabled={busy||session.user.role==="viewer"}>Register router</button></form><RecordTable empty="No routers registered." headers={["Name","Host","Port","Status","Created","Actions"]} rows={routers.map(r=>[r.name,r.host,r.port,r.last_status,new Date(r.created_at).toLocaleString(),<span key={r.id} className="prod-actions"><button onClick={()=>void run(()=>api.testRouter(r.id),"Connection test finished.")} disabled={busy}>Test</button><button onClick={()=>void run(()=>api.routerPeers(r.id),"Live WireGuard peer discovery finished.")} disabled={busy}>Discover peers</button><button onClick={()=>void run(()=>api.auditRouter(r.id),"Read-only router audit finished.")} disabled={busy}>Audit</button></span>])}/>
+<div className="prod-card prod-form"><h2>Managed WireGuard peers</h2><p className="prod-muted">Select a registered router, create peers only after a successful preview, and revoke only after explicit confirmation. Live writes are disabled by server policy unless an administrator enables them after testing.</p><label className="prod-select">Router<select value={selectedRouter} onChange={e=>setSelectedRouter(e.target.value?Number(e.target.value):"")}><option value="">Select router</option>{routers.map(r=><option key={r.id} value={r.id}>{r.name} · {r.host}</option>)}</select></label><div className="prod-grid"><label>WireGuard interface name<input required value={peerForm.interface_name} onChange={e=>{setPeerForm({...peerForm,interface_name:e.target.value});setPeerPreview(false);}} placeholder="wg-main"/></label><label>Peer name<input required value={peerForm.name} onChange={e=>{setPeerForm({...peerForm,name:e.target.value});setPeerPreview(false);}} placeholder="laptop-alice"/></label><label>Peer address / CIDR<input required value={peerForm.allowed_address} onChange={e=>{setPeerForm({...peerForm,allowed_address:e.target.value});setPeerPreview(false);}} placeholder="10.20.0.2/32"/></label><label>Optional endpoint<input value={peerForm.endpoint} onChange={e=>setPeerForm({...peerForm,endpoint:e.target.value})} placeholder="vpn.example.com:51820"/></label><label className="prod-full">Destination ACL (one CIDR per line; empty means deny all forwarded destinations)<textarea rows={3} value={peerForm.access_networks} onChange={e=>{setPeerForm({...peerForm,access_networks:e.target.value});setPeerPreview(false);}} placeholder={"172.16.16.0/24\n10.20.30.15/32"}/></label></div><div className="prod-actions"><button className="prod-secondary" onClick={()=>void previewPeer()} disabled={busy||!selectedRouter||session.user.role==="viewer"}>Validate / preview</button>{peerPreview&&<button className="prod-primary" onClick={()=>void createPeer()} disabled={busy||session.user.role==="viewer"}>Confirm and create peer</button>}</div><RecordTable empty="No manager-owned peers are stored for this router." headers={["Name","Address","Status","ACL enforcement","Destination networks","Actions"]} rows={managedPeers.map(peer=>[peer.name,peer.allowed_address,peer.status,peer.access_control_applied?"Applied":"Needs review",<div key={peer.id} className="prod-acl-editor"><textarea rows={2} aria-label={"Destination ACL for "+peer.name} value={aclEdit[peer.id]??peer.access_networks.join("\n")} onChange={e=>setAclEdit({...aclEdit,[peer.id]:e.target.value})}/><button onClick={()=>void saveAcl(peer)} disabled={busy||session.user.role==="viewer"}>Save ACL</button></div>,<div key={peer.id} className="prod-actions"><button onClick={()=>void downloadPeer(peer,"config")} disabled={busy||!peer.private_key_available||session.user.role==="viewer"}>Download .conf</button><button onClick={()=>void downloadPeer(peer,"qr")} disabled={busy||!peer.private_key_available||session.user.role==="viewer"}>Download QR</button><button onClick={()=>void revokePeer(peer)} disabled={busy||peer.status==="revoked"||session.user.role==="viewer"}>Revoke</button></div>])}/></div>
+<div className="prod-card prod-form"><h2>Client configuration / QR settings</h2><p className="prod-muted">The resulting config/QR contains client private-key material. Download it only to a trusted device and do not share it.</p><div className="prod-grid"><label>WireGuard server public key<input required value={clientConfig.server_public_key} onChange={e=>setClientConfig({...clientConfig,server_public_key:e.target.value})}/></label><label>VPN endpoint host:port<input required value={clientConfig.endpoint} onChange={e=>setClientConfig({...clientConfig,endpoint:e.target.value})} placeholder="vpn.example.com:51820"/></label><label>DNS server IPs<input required value={clientConfig.dns} onChange={e=>setClientConfig({...clientConfig,dns:e.target.value})}/></label><label>Fallback AllowedIPs<input required value={clientConfig.allowed_ips} onChange={e=>setClientConfig({...clientConfig,allowed_ips:e.target.value})}/></label><label>Persistent keepalive seconds<input type="number" min="0" max="65535" required value={clientConfig.persistent_keepalive} onChange={e=>setClientConfig({...clientConfig,persistent_keepalive:e.target.value})}/></label></div></div>
+</>}
+      {tab==="linux"&&<><h1>Linux WireGuard servers</h1><p className="prod-muted">SSH private keys are sent to the configured API over HTTPS and stored encrypted there. Verify the SHA256 host-key fingerprint independently before registering a host.</p><form className="prod-card prod-form" onSubmit={submitLinux}><h2>Register Linux server</h2><div className="prod-grid"><label>Name<input required value={linuxForm.name} onChange={e=>setLinuxForm({...linuxForm,name:e.target.value})}/></label><label>IP address<input required value={linuxForm.host} onChange={e=>setLinuxForm({...linuxForm,host:e.target.value})}/></label><label>SSH port<input type="number" min="1" max="65535" required value={linuxForm.port} onChange={e=>setLinuxForm({...linuxForm,port:e.target.value})}/></label><label>SSH username<input required value={linuxForm.username} onChange={e=>setLinuxForm({...linuxForm,username:e.target.value})}/></label><label className="prod-full">SSH private key<textarea required rows={4} value={linuxForm.ssh_private_key} onChange={e=>setLinuxForm({...linuxForm,ssh_private_key:e.target.value})}/></label><label className="prod-full">Verified host-key fingerprint (SHA256:…)<input required value={linuxForm.host_key_fingerprint} onChange={e=>setLinuxForm({...linuxForm,host_key_fingerprint:e.target.value})}/></label></div><button className="prod-primary" disabled={busy||session.user.role!=="admin"}>Register Linux server</button></form><RecordTable empty="No Linux servers registered." headers={["Name","Host","OS","WireGuard","Status","Actions"]} rows={servers.map(s=>[s.name,s.host,[s.distro_id,s.distro_version].filter(Boolean).join(" ")||"Not inspected",s.wireguard_installed?"Installed":"Unknown",s.last_status,<span key={s.id} className="prod-actions"><button onClick={()=>void run(()=>api.inspectLinux(s.id),"Server inspection completed.")} disabled={busy}>Inspect</button><button onClick={()=>void run(()=>api.remoteLinuxPeers(s.id),"Remote peer discovery completed.")} disabled={busy}>Discover peers</button><button onClick={()=>void run(()=>api.previewLinuxInstall(s.id),"Install plan preview returned; review the plan before any change.")} disabled={busy}>Preview install</button><button onClick={()=>{if(window.confirm("Install WireGuard packages on "+s.name+"? This changes the remote host and requires the server-side mutation gate to be enabled."))void run(()=>api.installLinux(s.id),"Install request completed.");}} disabled={busy||session.user.role!=="admin"||s.wireguard_installed}>Install WireGuard</button><button onClick={()=>void run(()=>api.inspectLinuxOptimizer(s.id),"Read-only optimizer inspection completed.")} disabled={busy}>Inspect optimizer</button><button onClick={()=>{if(window.confirm("Apply reviewed WireGuard host tuning on "+s.name+"? This changes system-wide kernel network settings."))void run(()=>api.applyLinuxOptimizer(s.id),"Optimizer apply request completed.");}} disabled={busy||session.user.role!=="admin"}>Apply tuning</button></span>])}/>
+<div className="prod-card prod-form"><h2>Managed Linux WireGuard peers</h2><label className="prod-select">Linux server<select value={selectedServer} onChange={e=>setSelectedServer(e.target.value?Number(e.target.value):"")}><option value="">Select server</option>{servers.map(s=><option key={s.id} value={s.id}>{s.name} · {s.host}</option>)}</select></label><div className="prod-grid"><label>Interface name<input required value={linuxPeerForm.interface_name} onChange={e=>{setLinuxPeerForm({...linuxPeerForm,interface_name:e.target.value});setLinuxPeerPreview(false);}} placeholder="wg0"/></label><label>Peer name<input required value={linuxPeerForm.name} onChange={e=>{setLinuxPeerForm({...linuxPeerForm,name:e.target.value});setLinuxPeerPreview(false);}}/></label><label>Peer address / CIDR<input required value={linuxPeerForm.allowed_address} onChange={e=>{setLinuxPeerForm({...linuxPeerForm,allowed_address:e.target.value});setLinuxPeerPreview(false);}} placeholder="10.30.0.2/32"/></label><label className="prod-full">Destination ACL (one CIDR per line; empty means deny all forwarded destinations)<textarea rows={3} value={linuxPeerForm.access_networks} onChange={e=>{setLinuxPeerForm({...linuxPeerForm,access_networks:e.target.value});setLinuxPeerPreview(false);}}/></label></div><div className="prod-actions"><button className="prod-secondary" onClick={()=>void previewLinuxPeer()} disabled={busy||!selectedServer||session.user.role==="viewer"}>Validate / preview</button>{linuxPeerPreview&&<button className="prod-primary" onClick={()=>void createLinuxPeer()} disabled={busy||session.user.role==="viewer"}>Confirm and create peer</button>}</div><RecordTable empty="No manager-owned Linux peers for this server." headers={["Name","Interface","Address","Status","ACL","Actions"]} rows={linuxPeers.map(peer=>[peer.name,peer.interface_name,peer.allowed_address,peer.status,<div key={peer.id} className="prod-acl-editor"><textarea rows={2} aria-label={"Destination ACL for "+peer.name} value={linuxAclEdit[peer.id]??peer.access_networks.join("\n")} onChange={e=>setLinuxAclEdit({...linuxAclEdit,[peer.id]:e.target.value})}/><button onClick={()=>void saveLinuxAcl(peer)} disabled={busy||session.user.role==="viewer"}>Save ACL</button></div>,<div key={peer.id} className="prod-actions"><button onClick={()=>void downloadLinuxPeer(peer,"config")} disabled={busy||session.user.role==="viewer"}>Download .conf</button><button onClick={()=>void downloadLinuxPeer(peer,"qr")} disabled={busy||session.user.role==="viewer"}>Download QR</button><button onClick={()=>void revokeLinuxPeer(peer)} disabled={busy||peer.status==="revoked"||session.user.role==="viewer"}>Revoke</button></div>])}/></div>
+</>}
+      {tab==="traffic"&&<><h1>Live traffic counters</h1><p className="prod-muted">These are point-in-time RouterOS counters, not historical analytics or invented trends.</p><label className="prod-select">Router<select value={selectedRouter} onChange={e=>setSelectedRouter(e.target.value?Number(e.target.value):"")}><option value="">Select router</option>{routers.map(r=><option key={r.id} value={r.id}>{r.name} · {r.host}</option>)}</select></label><button className="prod-primary" onClick={()=>void loadTraffic()} disabled={busy||!selectedRouter}>Fetch live counters</button><RecordTable empty="Choose a router and fetch counters." headers={["Peer","Allowed address","Download bytes","Upload bytes","Last handshake","State"]} rows={traffic.map((p,i)=>[p.name,p.allowed_address,p.rx_bytes.toLocaleString(),p.tx_bytes.toLocaleString(),p.last_handshake||"Never reported",p.disabled?"Disabled":"Enabled"])}/></>}
+      {tab==="diagnostics"&&<><h1>Diagnostics and read-only audit</h1><p className="prod-muted">Checks run against selected registered infrastructure and return actual API results.</p><label className="prod-select">Router<select value={selectedRouter} onChange={e=>setSelectedRouter(e.target.value?Number(e.target.value):"")}><option value="">Select router</option>{routers.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label><div className="prod-actions"><button className="prod-primary" onClick={()=>selectedRouter&&void run(()=>api.routerDiagnostics(selectedRouter),"Live diagnostics completed.")} disabled={busy||!selectedRouter}>Run diagnostics</button><button className="prod-secondary" onClick={()=>selectedRouter&&void run(()=>api.auditRouter(selectedRouter),"Read-only audit completed.")} disabled={busy||!selectedRouter}>Run security audit</button><button className="prod-secondary" onClick={()=>void loadAudit()} disabled={busy||session.user.role==="viewer"}>Browse audit log</button><button className="prod-secondary" onClick={()=>void run(()=>api.verifyAudit(),"Audit chain verification completed.")} disabled={busy||session.user.role==="viewer"}>Verify audit chain</button></div><RecordTable empty="No audit events loaded." headers={["Time","Actor","Action","Target","Outcome"]} rows={auditEvents.map(event=>[new Date(event.created_at).toLocaleString(),event.actor,event.action,event.target_type+":"+event.target_id,event.outcome])}/><pre className="prod-result">{lastResult?JSON.stringify(lastResult,null,2):"No diagnostics run in this session."}</pre></>}
+      {tab==="users"&&<><h1>User administration</h1><p className="prod-muted">Create named accounts with role-based permissions. No shared demo account exists.</p><form className="prod-card prod-form" onSubmit={async e=>{e.preventDefault();const r=await run(()=>api.createUser(userForm),"User created.");if(r)setUserForm({username:"",password:"",role:"viewer"});}}><div className="prod-grid"><label>Username<input required minLength={3} value={userForm.username} onChange={e=>setUserForm({...userForm,username:e.target.value})}/></label><label>Temporary password (12+ characters)<input required minLength={12} type="password" autoComplete="new-password" value={userForm.password} onChange={e=>setUserForm({...userForm,password:e.target.value})}/></label><label>Role<select value={userForm.role} onChange={e=>setUserForm({...userForm,role:e.target.value as typeof userForm.role})}><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label></div><button className="prod-primary" disabled={busy||session.user.role!=="admin"}>Create user</button></form><p className="prod-muted">Only administrators can create users. Passwords are hashed by the API and are never returned.</p></>}
+    </section><footer className="prod-footer">WireGuard Manager · Production mode · Backend-backed data only</footer>{lastResult !== null && tab!=="diagnostics"&&<details className="prod-debug"><summary>Last operation response</summary><pre>{JSON.stringify(lastResult,null,2)}</pre></details>}</main>;
+}
+function RecordTable({headers,rows,empty}:{headers:string[];rows:(string|number|ReactNode)[][];empty:string}) {
+ return <div className="prod-table-wrap"><table className="prod-table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v}</td>)}</tr>)}</tbody></table>{rows.length===0&&<p className="prod-empty">{empty}</p>}</div>;
 }

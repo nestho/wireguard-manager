@@ -6,12 +6,13 @@ export type Session = {
   expires_in: number;
   user: { username: string; role: "admin" | "operator" | "viewer" };
 };
-let session: Session | null = null;
+let session: Session | null = (() => { try { const raw = sessionStorage.getItem("wgm-production-session"); return raw ? JSON.parse(raw) as Session : null; } catch { return null; } })();
 let refreshTimer: number | undefined;
 
 export function getSession() { return session; }
 export function setSession(value: Session | null) {
   session = value;
+  try { if (value) sessionStorage.setItem("wgm-production-session", JSON.stringify(value)); else sessionStorage.removeItem("wgm-production-session"); } catch { /* Private browsing may disable storage; in-memory auth still works. */ }
   if (refreshTimer) window.clearTimeout(refreshTimer);
   if (value) {
     // Refresh shortly before the 15-minute access token expires.

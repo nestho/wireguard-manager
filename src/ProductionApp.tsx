@@ -33,6 +33,7 @@ export default function ProductionApp() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"routers" | "linux">("routers");
+  const [adding, setAdding] = useState<"router" | "linux" | null>(null);
   const [health, setHealth] = useState("Checking API…");
 
   const clearSession = useCallback(() => {
@@ -86,6 +87,37 @@ export default function ProductionApp() {
     catch (e) { setError(e instanceof Error ? e.message : "Refresh failed"); }
     finally { setBusy(false); }
   };
+  const registerResource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!adding) return;
+    setBusy(true); setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      if (adding === "router") {
+        await api("/api/v1/routers", { method:"POST", body:JSON.stringify({
+          name:String(form.get("name") || "").trim(),
+          host:String(form.get("host") || "").trim(),
+          port:Number(form.get("port") || 443),
+          username:String(form.get("username") || "").trim(),
+          password:String(form.get("password") || ""),
+          tls_verify:true
+        }) }, access);
+      } else {
+        await api("/api/v1/linux-servers", { method:"POST", body:JSON.stringify({
+          name:String(form.get("name") || "").trim(),
+          host:String(form.get("host") || "").trim(),
+          port:Number(form.get("port") || 22),
+          username:String(form.get("username") || "").trim(),
+          ssh_private_key:String(form.get("ssh_private_key") || ""),
+          host_key_fingerprint:String(form.get("host_key_fingerprint") || "").trim()
+        }) }, access);
+      }
+      setAdding(null);
+      await loadData(access);
+      setNotice(adding === "router" ? "Router registered. Connection status remains unverified until tested." : "Linux server registered. SSH host-key pinning is saved; run an inspection before operations.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Registration failed"); }
+    finally { setBusy(false); }
+  };
 
   return <main className="prod-shell">
     <header className="prod-header"><div className="prod-brand"><span className="prod-mark">WG</span><div><h1>WireGuard Manager</h1><p>Production control plane · live API data only</p></div></div><span className="prod-health">{health}</span></header>
@@ -98,10 +130,18 @@ export default function ProductionApp() {
     </form><small>Initial admin is provisioned once by the deployment script.</small></section>
     : <><section className="prod-welcome"><div><div className="prod-kicker">LIVE WORKSPACE</div><h2>Welcome, {user.username}</h2><p>Role: <b>{user.role}</b> · Inventory is read directly from the API.</p></div><div className="prod-actions"><button onClick={refreshInventory} disabled={busy}>{busy ? "Refreshing…" : "Refresh inventory"}</button><button onClick={logout}>Sign out</button></div></section>
     <section className="prod-stats"><article><span>Registered routers</span><strong>{routers.length}</strong><small>Persisted in backend database</small></article><article><span>Linux servers</span><strong>{servers.length}</strong><small>Persisted in backend database</small></article><article><span>Healthy routers</span><strong>{routers.filter(r=>r.last_status==="healthy").length}</strong><small>Last recorded status, not a live probe</small></article><article><span>WireGuard servers ready</span><strong>{servers.filter(s=>s.wireguard_installed).length}</strong><small>Based on last server inspection</small></article></section>
-    <section className="prod-panel"><div className="prod-tabs"><button className={view==="routers"?"active":""} onClick={()=>{setView("routers");setRouterDetail(null)}}>RouterOS routers ({routers.length})</button><button className={view==="linux"?"active":""} onClick={()=>{setView("linux");setRouterDetail(null)}}>Linux servers ({servers.length})</button></div>
+    <section className="prod-panel"><div className="prod-panel-toolbar"><div><strong>Infrastructure inventory</strong><small>Live records from the backend database</small></div>{((view==="routers" && (user.role==="admin" || user.role==="operator")) || (view==="linux" && user.role==="admin")) && <button className="prod-primary" onClick={()=>setAdding(view==="routers"?"router":"linux")}>Register {view==="routers"?"router":"Linux server"}</button>}</div><div className="prod-tabs"><button className={view==="routers"?"active":""} onClick={()=>{setView("routers");setRouterDetail(null)}}>RouterOS routers ({routers.length})</button><button className={view==="linux"?"active":""} onClick={()=>{setView("linux");setRouterDetail(null)}}>Linux servers ({servers.length})</button></div>
     {view==="routers" ? <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>Account</th><th>Last status</th><th>Action</th></tr></thead><tbody>{routers.map(r=><tr key={r.id}><td>{r.name}</td><td><code>{r.host}:{r.port}</code></td><td>{r.username}</td><td><span className={"prod-badge "+r.last_status}>{r.last_status}</span></td><td><button onClick={()=>inspectRouter(r.id)}>Read WireGuard peers</button></td></tr>)}{!routers.length&&<tr><td colSpan={5} className="prod-empty">No routers registered. The database is empty; no sample data is substituted.</td></tr>}</tbody></table></div>
     : <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>SSH account</th><th>Distribution</th><th>WireGuard</th><th>Status</th></tr></thead><tbody>{servers.map(s=><tr key={s.id}><td>{s.name}</td><td><code>{s.host}:{s.port}</code></td><td>{s.username}</td><td>{s.distro_id || "Not inspected"} {s.distro_version || ""}</td><td>{s.wireguard_installed?"Installed":"Unknown / absent"}</td><td><span className={"prod-badge "+s.last_status}>{s.last_status}</span></td></tr>)}{!servers.length&&<tr><td colSpan={6} className="prod-empty">No Linux servers registered. No sample data is substituted.</td></tr>}</tbody></table></div>}
     </section>
+    {adding && <div className="prod-modal-backdrop"><section className="prod-modal" role="dialog" aria-modal="true" aria-labelledby="prod-modal-title"><div className="prod-panel-title"><h3 id="prod-modal-title">Register {adding==="router"?"RouterOS router":"Linux server"}</h3><button type="button" onClick={()=>setAdding(null)} disabled={busy}>Cancel</button></div><p>Credentials are sent directly to the API over this same origin and are not saved in browser storage.</p><form className="prod-register-form" onSubmit={registerResource}>
+      <label>Display name<input name="name" maxLength={120} required /></label>
+      <label>Private management IP<input name="host" placeholder="192.168.1.10" inputMode="decimal" required /></label>
+      <label>{adding==="router"?"RouterOS HTTPS port":"SSH port"}<input name="port" type="number" min="1" max="65535" defaultValue={adding==="router"?443:22} required /></label>
+      <label>{adding==="router"?"RouterOS account":"SSH account"}<input name="username" autoComplete="off" required /></label>
+      {adding==="router" ? <label>RouterOS password<input name="password" type="password" autoComplete="new-password" required /></label> : <><label>SSH private key<textarea name="ssh_private_key" rows={7} autoComplete="off" spellCheck={false} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" required /></label><label>Verified SSH host-key fingerprint<input name="host_key_fingerprint" placeholder="SHA256:…" required /></label><small>Verify the SHA256 fingerprint through a trusted channel before registering the server.</small></>}
+      <div className="prod-form-actions"><button type="button" onClick={()=>setAdding(null)} disabled={busy}>Cancel</button><button className="prod-primary" disabled={busy}>{busy?"Registering…":"Register"}</button></div>
+    </form></section></div>}
     {routerDetail !== null && <section className="prod-panel"><div className="prod-panel-title"><h3>Live WireGuard data · Router #{selectedRouter}</h3><button onClick={()=>setRouterDetail(null)}>Close</button></div><p>Read-only result from the registered router. Treat peer metadata as sensitive operational data.</p><pre>{JSON.stringify(routerDetail,null,2)}</pre></section>}
     <p className="prod-footnote">Production mode does not use browser local storage, synthetic routers, sample peers, or demo audit events. Router peer reads are read-only. Mutations are not exposed in this initial production UI.</p></>}
   </main>;

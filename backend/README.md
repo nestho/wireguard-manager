@@ -1,9 +1,9 @@
 # WireGuard Manager API
 
-FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The frontend remains a separate demo and is **not connected** to this API.
+FastAPI backend for early-stage, multi-platform WireGuard inventory and controlled RouterOS/Linux server operations. The default Vite/GitHub Pages build is a demo; the separate production build uses the authenticated API-backed UI and serves it from FastAPI.
 
 > [!WARNING]
-> This project is **not production-ready**. Live peer create/revoke and Linux install operations are disabled by default. Integration testing, deployment hardening, timeout reconciliation, rate limiting, off-host audit retention, and frontend integration remain outstanding.
+> The PM2 deployment path is available, but the overall product is still incomplete and has not been security-certified. The production UI currently supports authentication, router/Linux inventory, and read-only peer discovery; complete management forms, full peer lifecycle UI, end-to-end testing, rate limiting, timeout reconciliation, and off-host audit retention remain outstanding. Live peer create/revoke and Linux install operations are disabled by default.
 
 ## Contents
 
@@ -17,6 +17,10 @@ FastAPI backend for early-stage, multi-platform WireGuard inventory and controll
 - [Safe mutation workflow](#safe-mutation-workflow)
 - [Testing](#testing)
 - [Operational limitations](#operational-limitations)
+
+## Production host deployment
+
+See [the PM2 production deployment guide](../docs/PRODUCTION_DEPLOYMENT.md). From the repository root on a prepared Linux host, run `bash scripts/deploy-production.sh`. It builds the production-mode frontend, applies Alembic migrations, provisions the first administrator on a clean install, and starts the API/UI with PM2. It preserves existing `.env` and database files on updates. Do not expose port 8000 directly to the internet.
 
 ## Requirements
 

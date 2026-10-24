@@ -87,6 +87,9 @@ export const api = {
 
   auditRouter: (id:number|string) => request<Record<string,unknown>>(`/v1/routers/${id}/audit`),
   createUser: (body:{username:string;password:string;role:"admin"|"operator"|"viewer"}) => request<{id:number;username:string;role:string;is_active:boolean}>("/v1/auth/users",{method:"POST",body:JSON.stringify(body)}),
+  auditEvents: (limit=100,offset=0) => request<AuditEvent[]>(`/v1/admin/audit?limit=${limit}&offset=${offset}`),
+  verifyAudit: () => request<{valid:boolean;checked:number;first_invalid_event_id?:number}>("/v1/admin/audit/verify"),
+
 };
 export type RouterRecord = {id:number;name:string;host:string;port:number;username:string;tls_verify:boolean;last_status:string;created_at:string};
 export type LinuxServer = {id:number;name:string;host:string;port:number;username:string;distro_id:string|null;distro_version:string|null;package_manager:string|null;wireguard_installed:boolean;last_status:string;last_check_at:string|null;created_at:string};
@@ -107,3 +110,5 @@ async function downloadArtifact(path:string, body:ClientConfigPayload, attempt=t
   const filename=disposition.match(/filename="([^"]+)"/i)?.[1]||"wireguard-client";
   const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+
+export type AuditEvent = {id:number;actor:string;action:string;target_type:string;target_id:string;outcome:string;details:Record<string,unknown>;created_at:string;event_hash:string;previous_hash:string};

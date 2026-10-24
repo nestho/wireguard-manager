@@ -50,5 +50,31 @@ for attempt in $(seq 1 20); do
 done
 curl --fail --silent http://127.0.0.1:8000/api/v1/health
 printf '\n'
+
+# Bootstrap the first administrator once. The API rejects this after any user exists.
+if grep -Eq '^WGM_BOOTSTRAP_ADMIN_USERNAME=.+ Web: http://127.0.0.1:4173 (binds to loopback); API: http://127.0.0.1:8000 (binds to loopback). Put a TLS reverse proxy in front before remote use."
+log "First-run admin bootstrap, if configured, must be invoked once over the private host: POST /api/v1/admin/bootstrap; then remove bootstrap credentials from .env and restart the API."
+ .env && grep -Eq '^WGM_BOOTSTRAP_ADMIN_PASSWORD=.+ Web: http://127.0.0.1:4173 (binds to loopback); API: http://127.0.0.1:8000 (binds to loopback). Put a TLS reverse proxy in front before remote use."
+log "First-run admin bootstrap, if configured, must be invoked once over the private host: POST /api/v1/admin/bootstrap; then remove bootstrap credentials from .env and restart the API."
+ .env; then
+  log "Attempting one-time administrator bootstrap"
+  response="$(curl --silent --show-error --output /tmp/wgm-bootstrap-response.$ --write-out '%{http_code}' -X POST http://127.0.0.1:8000/api/v1/admin/bootstrap || true)"
+  case "$response" in
+    201) log "Initial administrator created. Use the username/password configured in .env." ;;
+    409) log "Database already contains users; bootstrap was not repeated." ;;
+    *) cat /tmp/wgm-bootstrap-response.$ >&2 || true; rm -f /tmp/wgm-bootstrap-response.$; die "Administrator bootstrap failed with HTTP $response." ;;
+  esac
+  rm -f /tmp/wgm-bootstrap-response.$
+  python3 - <<'PY'
+from pathlib import Path
+p = Path(".env")
+lines = p.read_text().splitlines()
+blocked = ("WGM_BOOTSTRAP_ADMIN_USERNAME=", "WGM_BOOTSTRAP_ADMIN_PASSWORD=")
+p.write_text("\n".join(line for line in lines if not line.startswith(blocked)) + "\n")
+PY
+  chmod 600 .env
+  log "Removed one-time bootstrap credentials from .env."
+fi
+
 log "Deployment checks passed. Web: http://127.0.0.1:4173 (binds to loopback); API: http://127.0.0.1:8000 (binds to loopback). Put a TLS reverse proxy in front before remote use."
 log "First-run admin bootstrap, if configured, must be invoked once over the private host: POST /api/v1/admin/bootstrap; then remove bootstrap credentials from .env and restart the API."

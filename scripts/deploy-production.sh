@@ -24,6 +24,7 @@ if [[ ! -f .env ]]; then
   [[ -d .venv ]] || python3 -m venv .venv
   .venv/bin/python -m pip install --upgrade pip >/dev/null
   .venv/bin/python -m pip install 'cryptography>=43,<47' >/dev/null
+  ADMIN_PASS_ESC="$(printf '%s' "$ADMIN_PASS" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
   JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
   ENC_KEY="$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
   cat > .env <<EOF
@@ -33,7 +34,7 @@ WGM_JWT_SECRET=$JWT_SECRET
 WGM_ENCRYPTION_KEY=$ENC_KEY
 WGM_ACCESS_TOKEN_MINUTES=15
 WGM_BOOTSTRAP_ADMIN_USERNAME=$ADMIN_USER
-WGM_BOOTSTRAP_ADMIN_PASSWORD=$ADMIN_PASS
+WGM_BOOTSTRAP_ADMIN_PASSWORD=$ADMIN_PASS_ESC
 WGM_ALLOWED_ORIGINS=
 WGM_ALLOW_PUBLIC_ROUTER_HOSTS=false
 WGM_ALLOW_PUBLIC_LINUX_HOSTS=false
@@ -41,7 +42,7 @@ WGM_ENABLE_PEER_MUTATIONS=false
 WGM_ENABLE_LINUX_MUTATIONS=false
 WGM_ENABLE_LINUX_OPTIMIZER_MUTATIONS=false
 EOF
-  unset ADMIN_PASS ADMIN_CONFIRM JWT_SECRET ENC_KEY
+  unset ADMIN_PASS ADMIN_PASS_ESC ADMIN_CONFIRM JWT_SECRET ENC_KEY
   chmod 600 .env
   printf '%s\n' "$ADMIN_USER" > .first-admin-username
   chmod 600 .first-admin-username

@@ -24,7 +24,7 @@ if [[ ! -f .env ]]; then
   [[ -d .venv ]] || python3 -m venv .venv
   .venv/bin/python -m pip install --upgrade pip >/dev/null
   .venv/bin/python -m pip install 'cryptography>=43,<47' >/dev/null
-  ADMIN_PASS_ESC="$(printf '%s' "$ADMIN_PASS" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+  ADMIN_PASS_ESC="$(printf '%s' "$ADMIN_PASS" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read(), ensure_ascii=False))')"
   JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
   ENC_KEY="$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
   cat > .env <<EOF

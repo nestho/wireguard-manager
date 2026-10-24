@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer } from "./services/production-api";
+import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer, type ManagedPeer } from "./services/production-api";
 
 type Tab = "overview" | "routers" | "linux" | "traffic" | "diagnostics" | "users";
 export default function ProductionApp() {
@@ -9,6 +9,11 @@ export default function ProductionApp() {
   const [servers, setServers] = useState<LinuxServer[]>([]);
   const [selectedRouter, setSelectedRouter] = useState<number | "">("");
   const [traffic, setTraffic] = useState<TrafficPeer[]>([]);
+  const [managedPeers, setManagedPeers] = useState<ManagedPeer[]>([]);
+  const [peerForm, setPeerForm] = useState({interface_name:"wg0",name:"",allowed_address:"",access_networks:"",endpoint:""});
+  const [peerPreview, setPeerPreview] = useState(false);
+  const [aclEdit, setAclEdit] = useState<Record<number,string>>({});
+  const [clientConfig, setClientConfig] = useState({server_public_key:"",endpoint:"",dns:"1.1.1.1",allowed_ips:"0.0.0.0/0, ::/0",persistent_keepalive:"25"});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -37,11 +42,17 @@ export default function ProductionApp() {
   };
   useEffect(() => { if (session) void load(); }, [session]);
   useEffect(() => { if (!session) return; const id=window.setInterval(()=>void load(),30000); return ()=>window.clearInterval(id); }, [session]);
+  useEffect(() => { if (session && selectedRouter) void api.managedPeers(selectedRouter).then(setManagedPeers).catch(e=>setError(e instanceof Error?e.message:String(e))); else setManagedPeers([]); }, [session,selectedRouter]);
   const signIn = async (e:FormEvent) => { e.preventDefault(); await run(async()=>{ const s=await login(loginForm.username,loginForm.password); setCurrentSession(s); await load(); return s; }); };
   const submitRouter = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.addRouter({...routerForm,port:Number(routerForm.port),tls_verify:true}),"Router registered. Test its connection before relying on it."); if(result) {setRouterForm({name:"",host:"",port:"443",username:"",password:""});await load();} };
   const submitLinux = async (e:FormEvent) => { e.preventDefault(); const result=await run(()=>api.registerLinux({...linuxForm,port:Number(linuxForm.port)}),"Linux server registered. Inspect it to verify host identity and capabilities."); if(result){setLinuxForm({name:"",host:"",port:"22",username:"",ssh_private_key:"",host_key_fingerprint:""});await load();} };
   const doLogout = async () => { await run(()=>logout()); setSession(null); setCurrentSession(null); setRouters([]); setServers([]); setTraffic([]); };
   const loadTraffic = async () => { if (!selectedRouter) return; const r=await run(()=>api.routerTraffic(selectedRouter)); if(r && typeof r==="object" && "peers" in r) setTraffic((r as {peers:TrafficPeer[]}).peers); };
+  const previewPeer = async () => { if(!selectedRouter)return; const body={interface_name:peerForm.interface_name,name:peerForm.name,allowed_address:peerForm.allowed_address,access_networks:peerForm.access_networks.split(/[\\n,]+/).map(s=>s.trim()).filter(Boolean),endpoint:peerForm.endpoint||null}; const result=await run(()=>api.previewPeer(selectedRouter,body),"Peer preview passed. Review the response before explicitly creating the peer."); setPeerPreview(!!result); };
+  const createPeer = async () => { if(!selectedRouter||!peerPreview)return; const body={interface_name:peerForm.interface_name,name:peerForm.name,allowed_address:peerForm.allowed_address,access_networks:peerForm.access_networks.split(/[\\n,]+/).map(s=>s.trim()).filter(Boolean),endpoint:peerForm.endpoint||null}; const result=await run(()=>api.createPeer(selectedRouter,body),"Peer creation request completed."); if(result){setPeerForm({interface_name:"wg0",name:"",allowed_address:"",access_networks:"",endpoint:""});setPeerPreview(false);setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[]));} };
+  const revokePeer = async (peer:ManagedPeer) => { if(!selectedRouter||!window.confirm("Confirm revocation of peer \""+peer.name+"\"? The remote peer will be disabled and its stored private key erased."))return; const result=await run(()=>api.revokePeer(selectedRouter,peer.id),"Peer revocation completed."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
+  const saveAcl = async (peer:ManagedPeer) => { if(!selectedRouter)return; const networks=(aclEdit[peer.id]??peer.access_networks.join("\\n")).split(/[\\n,]+/).map(s=>s.trim()).filter(Boolean); const result=await run(()=>api.setPeerAcl(selectedRouter,peer.id,networks),"Peer destination ACL updated."); if(result)setManagedPeers(await api.managedPeers(selectedRouter).catch(()=>[])); };
+  const downloadPeer = async (peer:ManagedPeer,format:"config"|"qr") => { if(!selectedRouter)return; await run(()=>api.downloadClientConfig(selectedRouter,peer.id,{...clientConfig,persistent_keepalive:Number(clientConfig.persistent_keepalive)},format),format==="config"?"Client configuration downloaded.":"Client QR image downloaded."); };
   if (!session) return <main className="prod-shell"><header className="prod-header"><div><b>WireGuard Manager</b><span>Production control plane</span></div><span className="prod-state">Live API · no demo data</span></header><form className="prod-card prod-login" onSubmit={signIn}><h1>Sign in</h1><p>Use an account provisioned by your administrator. No default or demo account is created.</p><label>Username<input autoComplete="username" required value={loginForm.username} onChange={e=>setLoginForm({...loginForm,username:e.target.value})}/></label><label>Password<input type="password" autoComplete="current-password" required value={loginForm.password} onChange={e=>setLoginForm({...loginForm,password:e.target.value})}/></label><button disabled={busy} className="prod-primary">{busy?"Signing in…":"Sign in"}</button>{error&&<p className="prod-error" role="alert">{error}</p>}<small>API must be configured and reachable by this browser. There are no seeded credentials.</small></form></main>;
 
   const tabs: {id:Tab;label:string}[]=[{id:"overview",label:"Overview"},{id:"routers",label:"RouterOS"},{id:"linux",label:"Linux servers"},{id:"traffic",label:"Live traffic"},{id:"diagnostics",label:"Diagnostics & audit"},{id:"users",label:"Users"}];

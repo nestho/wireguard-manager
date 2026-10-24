@@ -3,7 +3,7 @@
 **WireGuard Manager** is an early-stage project for managing WireGuard deployments on **MikroTik RouterOS** and **Linux servers**. GitHub Pages is strictly a public product demo. A separate PM2-managed host deployment now serves an API-backed production-mode UI with live router/server inventory and read-only peer discovery; it is not yet a complete feature-parity or security-audited product.
 
 > [!IMPORTANT]
-> **Production scope is partial.** GitHub Pages and the default Vite development build remain a synthetic demo. The new PM2 production build uses authenticated API calls and does not load sample routers, peers, traffic, or audit events. It currently supports login, real router/Linux inventory, and read-only RouterOS peer discovery; router/server registration forms, full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end tests, and a full production security review are still outstanding. The Electron installer remains a separate read-only audit client, not the complete product. Keep live mutations disabled and deploy behind TLS on a restricted management network.
+> **Production scope is partial.** GitHub Pages and the default Vite development build remain a synthetic demo. The new PM2 production build uses authenticated API calls and does not load sample routers, peers, traffic, or audit events. It currently supports login, router/Linux inventory, router registration, Linux server registration with a pinned SSH host-key fingerprint, router connection tests, Linux host inspection, and read-only RouterOS peer discovery; full peer lifecycle UI, full audit/traffic/diagnostics views, end-to-end tests, and a full production security review are still outstanding. The Electron installer remains a separate read-only audit client, not the complete product. Keep live mutations disabled and deploy behind TLS on a restricted management network.
 
 <p align="center">
   <a href="https://nestho.github.io/wireguard-manager/"><strong>Open the frontend demo →</strong></a>
@@ -66,7 +66,7 @@ FastAPI backend
   └── Audit events ─────── hash-linked database records
 ~~~
 
-The default demo build's routers, peers, traffic charts, diagnostics, and audit events are illustrative. The production build is a separate entry point that authenticates against the API and displays real router/Linux inventory and read-only router peer results. The production UI is intentionally incomplete and does not yet expose the full API feature set.
+The default demo build's routers, peers, traffic charts, diagnostics, and audit events are illustrative. The production build is a separate entry point that authenticates against the API and displays real router/Linux inventory, supports registering servers, and can perform read-only router peer discovery. The production UI is intentionally incomplete and does not yet expose the full API feature set.
 
 ## Frontend demo
 
@@ -150,7 +150,7 @@ bash scripts/deploy-production.sh
 
 The script prompts for the initial admin credentials, generates unique JWT and encryption keys, creates the initial admin once, removes bootstrap credentials, and binds the service to `127.0.0.1:8000`. Put it behind a TLS reverse proxy before remote access. PM2 operations: `pm2 status`, `pm2 logs wireguard-manager`, `pm2 restart wireguard-manager`, `pm2 save`. Full steps and limitations: [Production deployment guide](docs/PRODUCTION_DEPLOYMENT.md).
 
-**Important:** this production UI is an initial live-data slice, not the completed full management product. It is currently read-only for router peers and does not provide the full CRUD/peer lifecycle/audit/traffic/diagnostics UI. Keep all mutation flags disabled. Back up both `data/wireguard-manager.db` and `WGM_ENCRYPTION_KEY` securely; do not expose port 8000 publicly.
+**Important:** this production UI is an initial live-data slice, not the completed full management product. It supports router/server registration, connection/inspection checks, and read-only router peer discovery, but does not provide full peer lifecycle/audit/traffic/diagnostics UI. Keep all mutation flags disabled. Back up both `data/wireguard-manager.db` and `WGM_ENCRYPTION_KEY` securely; do not expose port 8000 publicly.
 
 ## Backend capabilities
 
@@ -355,7 +355,7 @@ wireguard-manager/
 
 A release must not be described as production-ready until all of the following have been implemented and verified. CI passing on its own is not sufficient.
 
-- [ ] Complete API integration across all production UI views (the current production UI covers authentication, router/Linux inventory, and read-only RouterOS peer discovery only); keep demo and production modes explicitly separate.
+- [ ] Complete API integration across all production UI views (the current production UI covers authentication, router/Linux registration and inventory, host checks, and read-only RouterOS peer discovery only); keep demo and production modes explicitly separate.
 - [ ] Deliver the full management UI in the desktop application, not only the read-only audit window.
 - [ ] Ship the backend with the desktop application or provide a tested, versioned server deployment. The user must not need to manually start an API process for the desktop bundle.
 - [ ] Implement first-run setup, secure admin provisioning, session expiry/refresh/logout, role-aware controls, and safe secret handling.

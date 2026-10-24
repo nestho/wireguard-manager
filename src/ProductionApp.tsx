@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, getSession, login, logout, setSession, type RouterRecord, type LinuxServer, type TrafficPeer } from "./services/production-api";
 
 type Tab = "overview" | "routers" | "linux" | "traffic" | "diagnostics" | "users";
@@ -57,6 +57,6 @@ export default function ProductionApp() {
       {tab==="users"&&<><h1>User administration</h1><p className="prod-muted">Create named accounts with role-based permissions. No shared demo account exists.</p><form className="prod-card prod-form" onSubmit={async e=>{e.preventDefault();const r=await run(()=>api.createUser(userForm),"User created.");if(r)setUserForm({username:"",password:"",role:"viewer"});}}><div className="prod-grid"><label>Username<input required minLength={3} value={userForm.username} onChange={e=>setUserForm({...userForm,username:e.target.value})}/></label><label>Temporary password (12+ characters)<input required minLength={12} type="password" autoComplete="new-password" value={userForm.password} onChange={e=>setUserForm({...userForm,password:e.target.value})}/></label><label>Role<select value={userForm.role} onChange={e=>setUserForm({...userForm,role:e.target.value as typeof userForm.role})}><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label></div><button className="prod-primary" disabled={busy||session.user.role!=="admin"}>Create user</button></form><p className="prod-muted">Only administrators can create users. Passwords are hashed by the API and are never returned.</p></>}
     </section><footer className="prod-footer">WireGuard Manager · Production mode · Backend-backed data only</footer>{lastResult&&tab!=="diagnostics"&&<details className="prod-debug"><summary>Last operation response</summary><pre>{JSON.stringify(lastResult,null,2)}</pre></details>}</main>;
 }
-function RecordTable({headers,rows,empty}:{headers:string[];rows:(string|number|JSX.Element)[][];empty:string}) {
+function RecordTable({headers,rows,empty}:{headers:string[];rows:(string|number|ReactNode)[][];empty:string}) {
  return <div className="prod-table-wrap"><table className="prod-table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v}</td>)}</tr>)}</tbody></table>{rows.length===0&&<p className="prod-empty">{empty}</p>}</div>;
 }

@@ -66,6 +66,26 @@ def _router(db: Session, router_id: int) -> Router:
         raise HTTPException(404, "Router not found")
     return item
 
+@router.get("")
+def list_managed_peers(router_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Return manager-owned peer records without ever exposing encrypted/private key material."""
+    _router(db, router_id)
+    import json
+    peers = db.query(Peer).filter(Peer.router_id == router_id).order_by(Peer.id.desc()).all()
+    return [{
+        "id": peer.id,
+        "router_id": peer.router_id,
+        "name": peer.name,
+        "public_key": peer.public_key,
+        "allowed_address": peer.allowed_address,
+        "access_networks": json.loads(peer.access_networks_json or "[]"),
+        "access_control_applied": peer.access_control_applied,
+        "status": peer.status,
+        "created_at": peer.created_at.isoformat(),
+        "private_key_available": bool(peer.private_key_ciphertext),
+    } for peer in peers]
+
+
 @router.post("/preview")
 async def preview_peer(router_id: int, body: PeerCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "operator"))):
     item = _router(db, router_id)

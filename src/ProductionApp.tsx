@@ -1,4 +1,5 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 
 type User = { username: string; role: string };
 type RouterItem = { id: number; name: string; host: string; port: number; username: string; tls_verify: boolean; last_status: string; created_at: string };

@@ -81,6 +81,22 @@ export default function ProductionApp() {
     try { setRouterDetail(await api("/api/v1/routers/" + id + "/wireguard/peers", {}, access)); }
     catch (e) { setError(e instanceof Error ? e.message : "Unable to read router"); }
   };
+  const testRouter = async (id: number) => {
+    setSelectedRouter(id); setBusy(true); setError("");
+    try {
+      const result = await api("/api/v1/routers/" + id + "/test", { method:"POST" }, access);
+      setRouterDetail({ connection_test: result }); await loadData(access); setNotice("Router connection test completed.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Router test failed"); }
+    finally { setBusy(false); }
+  };
+  const inspectLinuxServer = async (id: number) => {
+    setSelectedRouter(null); setBusy(true); setError(""); setRouterDetail(null);
+    try {
+      const result = await api("/api/v1/linux-servers/" + id + "/inspect", { method:"POST" }, access);
+      setRouterDetail({ linux_server_inspection: result }); await loadData(access); setNotice("Linux server inspection completed.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Linux server inspection failed"); }
+    finally { setBusy(false); }
+  };
   const refreshInventory = async () => {
     setBusy(true); setError("");
     try { await loadData(access); setNotice("Inventory refreshed from the API."); }
@@ -131,8 +147,8 @@ export default function ProductionApp() {
     : <><section className="prod-welcome"><div><div className="prod-kicker">LIVE WORKSPACE</div><h2>Welcome, {user.username}</h2><p>Role: <b>{user.role}</b> · Inventory is read directly from the API.</p></div><div className="prod-actions"><button onClick={refreshInventory} disabled={busy}>{busy ? "Refreshing…" : "Refresh inventory"}</button><button onClick={logout}>Sign out</button></div></section>
     <section className="prod-stats"><article><span>Registered routers</span><strong>{routers.length}</strong><small>Persisted in backend database</small></article><article><span>Linux servers</span><strong>{servers.length}</strong><small>Persisted in backend database</small></article><article><span>Healthy routers</span><strong>{routers.filter(r=>r.last_status==="healthy").length}</strong><small>Last recorded status, not a live probe</small></article><article><span>WireGuard servers ready</span><strong>{servers.filter(s=>s.wireguard_installed).length}</strong><small>Based on last server inspection</small></article></section>
     <section className="prod-panel"><div className="prod-panel-toolbar"><div><strong>Infrastructure inventory</strong><small>Live records from the backend database</small></div>{((view==="routers" && (user.role==="admin" || user.role==="operator")) || (view==="linux" && user.role==="admin")) && <button className="prod-primary" onClick={()=>setAdding(view==="routers"?"router":"linux")}>Register {view==="routers"?"router":"Linux server"}</button>}</div><div className="prod-tabs"><button className={view==="routers"?"active":""} onClick={()=>{setView("routers");setRouterDetail(null)}}>RouterOS routers ({routers.length})</button><button className={view==="linux"?"active":""} onClick={()=>{setView("linux");setRouterDetail(null)}}>Linux servers ({servers.length})</button></div>
-    {view==="routers" ? <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>Account</th><th>Last status</th><th>Action</th></tr></thead><tbody>{routers.map(r=><tr key={r.id}><td>{r.name}</td><td><code>{r.host}:{r.port}</code></td><td>{r.username}</td><td><span className={"prod-badge "+r.last_status}>{r.last_status}</span></td><td><button onClick={()=>inspectRouter(r.id)}>Read WireGuard peers</button></td></tr>)}{!routers.length&&<tr><td colSpan={5} className="prod-empty">No routers registered. The database is empty; no sample data is substituted.</td></tr>}</tbody></table></div>
-    : <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>SSH account</th><th>Distribution</th><th>WireGuard</th><th>Status</th></tr></thead><tbody>{servers.map(s=><tr key={s.id}><td>{s.name}</td><td><code>{s.host}:{s.port}</code></td><td>{s.username}</td><td>{s.distro_id || "Not inspected"} {s.distro_version || ""}</td><td>{s.wireguard_installed?"Installed":"Unknown / absent"}</td><td><span className={"prod-badge "+s.last_status}>{s.last_status}</span></td></tr>)}{!servers.length&&<tr><td colSpan={6} className="prod-empty">No Linux servers registered. No sample data is substituted.</td></tr>}</tbody></table></div>}
+    {view==="routers" ? <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>Account</th><th>Last status</th><th>Action</th></tr></thead><tbody>{routers.map(r=><tr key={r.id}><td>{r.name}</td><td><code>{r.host}:{r.port}</code></td><td>{r.username}</td><td><span className={"prod-badge "+r.last_status}>{r.last_status}</span></td><td className="prod-row-actions"><button onClick={()=>inspectRouter(r.id)}>Read WireGuard peers</button>{(user.role==="admin" || user.role==="operator") && <button onClick={()=>testRouter(r.id)} disabled={busy}>Test connection</button>}</td></tr>)}{!routers.length&&<tr><td colSpan={5} className="prod-empty">No routers registered. The database is empty; no sample data is substituted.</td></tr>}</tbody></table></div>
+    : <div className="prod-table-wrap"><table><thead><tr><th>Name</th><th>Host</th><th>SSH account</th><th>Distribution</th><th>WireGuard</th><th>Status</th><th>Action</th></tr></thead><tbody>{servers.map(s=><tr key={s.id}><td>{s.name}</td><td><code>{s.host}:{s.port}</code></td><td>{s.username}</td><td>{s.distro_id || "Not inspected"} {s.distro_version || ""}</td><td>{s.wireguard_installed?"Installed":"Unknown / absent"}</td><td><span className={"prod-badge "+s.last_status}>{s.last_status}</span></td><td>{(user.role==="admin" || user.role==="operator") && <button onClick={()=>inspectLinuxServer(s.id)} disabled={busy}>Inspect</button>}</td></tr>)}{!servers.length&&<tr><td colSpan={7} className="prod-empty">No Linux servers registered. No sample data is substituted.</td></tr>}</tbody></table></div>}
     </section>
     {adding && <div className="prod-modal-backdrop"><section className="prod-modal" role="dialog" aria-modal="true" aria-labelledby="prod-modal-title"><div className="prod-panel-title"><h3 id="prod-modal-title">Register {adding==="router"?"RouterOS router":"Linux server"}</h3><button type="button" onClick={()=>setAdding(null)} disabled={busy}>Cancel</button></div><p>Credentials are sent directly to the API over this same origin and are not saved in browser storage.</p><form className="prod-register-form" onSubmit={registerResource}>
       <label>Display name<input name="name" maxLength={120} required /></label>

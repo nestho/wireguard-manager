@@ -64,7 +64,7 @@ PM2 logs are under logs/. Restrict access and configure log rotation.
 - Public targets and live mutations remain disabled by default.
 - Restrict the reverse proxy to trusted networks, configure TLS and request/time limits, and consider VPN-only access.
 - OpenAPI docs are disabled in production mode.
-- The UI currently provides authentication, real router/Linux inventory, and read-only WireGuard peer discovery. It does not yet provide full peer lifecycle management, router/server registration forms, full audit/traffic/diagnostics views, or desktop packaging of this full UI.
+- The UI currently provides authentication, router/Linux inventory and registration, router connection tests, Linux host inspection, and read-only WireGuard peer discovery. It does not yet provide full peer lifecycle management, full audit/traffic/diagnostics views, or desktop packaging of this full UI.
 - Do not describe this as fully feature-complete or fully security-audited. Run tests and a security review before using it to change production networks.
 
 ## Health checks

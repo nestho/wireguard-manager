@@ -3,8 +3,10 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WGM_", env_file=".env", extra="ignore")
+    environment: str = "development"
     database_url: str = "sqlite:///./wireguard-manager.db"
     jwt_secret: str = Field(default="", repr=False)
     encryption_key: str = Field(default="", repr=False)
@@ -18,9 +20,18 @@ class Settings(BaseSettings):
     enable_linux_mutations: bool = False
     enable_linux_optimizer_mutations: bool = False
 
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
     if settings.jwt_secret and len(settings.jwt_secret) < 32:
         raise ValueError("WGM_JWT_SECRET must be at least 32 characters")
+    if settings.environment.lower() == "production":
+        if len(settings.jwt_secret) < 32:
+            raise ValueError("WGM_JWT_SECRET is required and must be at least 32 characters in production")
+        if not settings.encryption_key:
+            raise ValueError("WGM_ENCRYPTION_KEY is required in production")
+        if settings.enable_peer_mutations or settings.enable_linux_mutations or settings.enable_linux_optimizer_mutations:
+            # Explicit opt-in remains possible, but deployment defaults deliberately keep all mutations disabled.
+            pass
     return settings
